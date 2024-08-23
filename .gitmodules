@@ -1,0 +1,13 @@
+[submodule "external/spdlog"]
+	path = external/spdlog
+	url = https://github.com/gabime/spdlog
+[submodule "external/spirv-cross-port/SPIRV-Cross"]
+	path = external/spirv-cross-port/SPIRV-Cross
+	url = https://github.com/KhronosGroup/SPIRV-Cross
+[submodule "external/xxhash-port/xxHash"]
+	path = external/xxhash-port/xxHash
+	url = https://github.com/Cyan4973/xxHash
+[submodule "external/imgui-port/imgui"]
+	path = external/imgui-port/imgui
+	url = https://github.com/ocornut/imgui
+	branch = docking

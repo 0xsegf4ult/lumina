@@ -1,0 +1,6 @@
+export module lumina.core.config;
+
+export namespace lumina::config
+{
+	constexpr const char* git_hash = "@GIT_HASH@";
+}
