@@ -10,6 +10,31 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_MODULE_STD 1)
 
+# import std with clang requires linking against libc++
+set(LUMINA_COMPILE_OPTIONS -Wno-deprecated-declarations -stdlib=libc++)
+
+# ninja is required for cpp modules
+# colorize ninja output
+if(${CMAKE_GENERATOR} MATCHES "Ninja")
+	set(LUMINA_COMPILE_OPTIONS ${LUMINA_COMPILE_OPTIONS} -fdiagnostics-color=always)
+else()
+	message(FATAL_ERROR "Generator ${CMAKE_GENERATOR} is not supported with C++ modules")
+endif()
+
+if(NOT LUMINA_PLATFORM)
+	if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+		set(LUMINA_PLATFORM "LINUX")
+		set(LUMINA_COMPILE_OPTIONS ${LUMINA_COMPILE_OPTIONS} -DLUMINA_PLATFORM_LINUX -DLUMINA_PLATFORM_POSIX)
+		message(status "lumina::platform: linux")
+	elseif(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+		set(LUMINA_PLATFORM "WIN32")
+		set(LUMINA_COMPILE_OPTIONS ${LUMINA_COMPILE_OPTIONS} -DLUMINA_PLATFORM_WIN32)
+		message(STATUS "lumina::platform: win32")
+	else()
+		message(FATAL_ERROR "Platform ${CMAKE_SYSTEM_NAME} not supported")
+	endif()
+endif()
+
 add_subdirectory("external")
 
 add_subdirectory("modules")
