@@ -34,7 +34,7 @@ export namespace lumina::log
 	{
 		auto console = spdlog::stdout_color_mt("engine_log");
 
-		console->set_pattern("[%T.%e][%^%l%$] %v");
+		console->set_pattern("[%t][%^%l%$] %v");
 		console->set_level(spdlog::level::debug);
 
 		spdlog::set_default_logger(console);

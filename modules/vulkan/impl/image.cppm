@@ -2,6 +2,7 @@ module lumina.vulkan:impl_image;
 
 import :device;
 import :image;
+import :queues;
 
 import vulkan_hpp;
 import std;
@@ -27,8 +28,8 @@ vk::ImageType image_type_from_size([[maybe_unused]]uint32_t w, uint32_t h, uint3
 {
 	if(d == 1)
 	{
-		if(h == 1)
-			return vk::ImageType::e1D;
+	//	if(h == 1)
+	//		return vk::ImageType::e1D;
 
 		return vk::ImageType::e2D;
 	}
@@ -137,7 +138,7 @@ vk::ImageUsageFlags decode_image_usage(ImageUsage usage)
 
 ImageView::~ImageView()
 {
-	device->release_image_view(handle);
+	device->release_resource(Queue::Graphics, {handle, 0});
 }
 
 Image::Image(Device* dev, const ImageKey& k, vk::Image img, vk::DeviceMemory m) : device{dev}, key{k}, handle{img}, memory{m}
@@ -170,10 +171,10 @@ Image::Image(Device* dev, const ImageKey& k, vk::Image img, vk::DeviceMemory m) 
 Image::~Image()
 {
 	if(owns_image)
-		device->release_image(handle);
+		device->release_resource(Queue::Graphics, {handle, 0});
 
 	if(owns_memory)
-		device->release_memory(memory);
+		device->release_resource(Queue::Graphics, {memory, 0});
 }
 
 void Image::disown()

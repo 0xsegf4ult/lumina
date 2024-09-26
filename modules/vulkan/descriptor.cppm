@@ -1,3 +1,7 @@
+module;
+
+#include <cassert>
+
 export module lumina.vulkan:descriptor;
 
 import vulkan_hpp;
@@ -60,14 +64,6 @@ export struct ImageBinding
 	ImageView* view;
 };
 
-export struct DescriptorSetBindings
-{
-	array_proxy<CombinedImageSamplerBinding> sampled_images;
-	array_proxy<ImageBinding> storage_images;
-	array_proxy<BufferBinding> uniform_buffers;
-	array_proxy<BufferBinding> storage_buffers;
-};
-
 export struct DescriptorSet
 {
 	uint32_t bindpoint;
@@ -76,13 +72,15 @@ export struct DescriptorSet
 
 export struct DescriptorSetPush
 {
-	uint32_t bindpoint;
-	DescriptorSetBindings bindings;
+	array_proxy<CombinedImageSamplerBinding> sampled_images;
+	array_proxy<ImageBinding> storage_images;
+	array_proxy<BufferBinding> uniform_buffers;
+	array_proxy<BufferBinding> storage_buffers;
 };
 
 const std::size_t max_variable_resources = 65536;
 
-export vk::DescriptorSetLayout create_descriptor_layout(vk::Device device, const DescriptorSetLayoutKey& key)
+export vk::DescriptorSetLayout create_descriptor_layout(vk::Device device, const DescriptorSetLayoutKey& key, bool is_push)
 {
 	std::vector<vk::DescriptorSetLayoutBinding> bindings;
 
@@ -140,11 +138,14 @@ export vk::DescriptorSetLayout create_descriptor_layout(vk::Device device, const
 		});
 	}
 
+	if(is_push)
+		assert(!variable_count_set);
+
 	vk::DescriptorSetLayout dsl;
 
 	vk::DescriptorSetLayoutCreateInfo layout_ci
 	{
-		.flags = vk::DescriptorSetLayoutCreateFlagBits::ePushDescriptorKHR,
+		.flags = is_push ? vk::DescriptorSetLayoutCreateFlagBits::ePushDescriptorKHR : vk::DescriptorSetLayoutCreateFlagBits{},
 		.bindingCount = static_cast<uint32_t>(bindings.size()),
 		.pBindings = bindings.data()
 	};

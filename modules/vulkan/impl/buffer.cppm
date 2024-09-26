@@ -2,6 +2,7 @@ module lumina.vulkan:impl_buffer;
 
 import :device;
 import :buffer;
+import :queues;
 
 import vulkan_hpp;
 import std;
@@ -14,8 +15,8 @@ namespace lumina::vulkan
 	{
 		if(device)
 		{
-			device->release_buffer(handle);
-			device->release_memory(memory);
+			device->release_resource(Queue::Graphics, {handle, 0});
+			device->release_resource(Queue::Graphics, {memory, 0});
 		}
 	}
 }

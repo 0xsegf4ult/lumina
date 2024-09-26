@@ -3,7 +3,7 @@ export module lumina.vulkan:image;
 import vulkan_hpp;
 import std;
 
-using std::uint32_t, std::size_t;
+using std::uint32_t, std::size_t, std::uint64_t;
 
 export namespace lumina::vulkan
 {
@@ -148,7 +148,6 @@ private:
 
 	std::vector<MipInfo> mips;
 	std::vector<ImageViewHandle> default_views;
-
 	Device* device;
 	ImageKey key;
 	vk::Image handle;

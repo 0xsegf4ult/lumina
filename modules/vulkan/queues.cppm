@@ -11,7 +11,9 @@ enum class Queue
 {
 	Graphics,
 	Compute,
-	Transfer
+	Transfer,
+
+	Invalid
 };
 
 constexpr std::string_view get_queue_name(Queue queue)

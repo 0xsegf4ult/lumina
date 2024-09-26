@@ -331,21 +331,18 @@ public:
 						
 						vulkan::Image* tex = static_cast<vulkan::Image*>(draw_cmd->TextureId);
 						
-						cb.bind_descriptor_sets
-						({{
-						 	.bindpoint = 0,
-							.bindings = 
+						cb.push_descriptor_set
+						({	
+							.sampled_images = 
 							{
-								.sampled_images = 
 								{
-									{
-									0,
-									tex->get_default_view(), 
-									device->get_prefab_sampler(vulkan::SamplerPrefab::Texture)
-									}
+								0,
+								tex->get_default_view(), 
+								device->get_prefab_sampler(vulkan::SamplerPrefab::Texture)
 								}
 							}
-						}});
+						
+						});
 
 						cb.bind_vertex_buffers
 						({

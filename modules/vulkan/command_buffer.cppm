@@ -33,6 +33,19 @@ struct ImageSubresource
 	uint32_t layers{vk::RemainingArrayLayers};
 };
 
+struct BufferBarrier
+{
+	vk::PipelineStageFlags2 src_stage;
+	vk::AccessFlags2 src_access{};
+	vk::PipelineStageFlags2 dst_stage;
+	vk::AccessFlags2 dst_access{};
+	Queue src_queue = Queue::Invalid;
+	Queue dst_queue = Queue::Invalid;
+	Buffer* buffer;
+	vk::DeviceSize offset = 0;
+	vk::DeviceSize size = vk::WholeSize;
+};
+
 struct ImageBarrier
 {
 	vk::PipelineStageFlags2 src_stage;
@@ -41,6 +54,8 @@ struct ImageBarrier
 	vk::AccessFlags2 dst_access{};
 	vk::ImageLayout src_layout;
 	vk::ImageLayout dst_layout;
+	Queue src_queue = Queue::Invalid;
+	Queue dst_queue = Queue::Invalid;
 	Image* image;
 	ImageSubresource subresource{};
 };
@@ -75,6 +90,13 @@ struct RenderPassDesc
 	AutoViewportMode auto_viewport{AutoViewportMode::Normal};
 };
 
+struct WaitSemaphoreInfo
+{
+	Queue wait_queue{Queue::Invalid};
+	uint64_t wait_value;
+	vk::PipelineStageFlags2 wait_stages;
+};
+
 struct CommandBuffer
 {
 	CommandBuffer() : device{nullptr}, cmd{nullptr}, thread{0}, queue{0} {}
@@ -83,7 +105,7 @@ struct CommandBuffer
 	}
 
 	CommandBuffer(const CommandBuffer&) = delete;
-	CommandBuffer(CommandBuffer&& other) noexcept : device{other.device}, cmd{other.cmd}, thread{other.thread}, queue{other.queue}, ctx_index{other.ctx_index}, bound_pipe{other.bound_pipe}, wsi_sync{other.wsi_sync}
+	CommandBuffer(CommandBuffer&& other) noexcept : device{other.device}, cmd{other.cmd}, thread{other.thread}, queue{other.queue}, ctx_index{other.ctx_index}, bound_pipe{other.bound_pipe}, wsi_sync{other.wsi_sync}, wsem{other.wsem}
 	{
 
 	}
@@ -98,6 +120,7 @@ struct CommandBuffer
 		ctx_index = other.ctx_index;
 		bound_pipe = other.bound_pipe;
 		wsi_sync = other.wsi_sync;
+		wsem = other.wsem;
 		return *this;
 	}
 
@@ -116,7 +139,8 @@ struct CommandBuffer
 		wsi_sync |= stages;
 	}
 
-	void pipeline_barrier(const ImageBarrier& b);
+	void pipeline_barrier(array_proxy<ImageBarrier> b);
+	void pipeline_barrier(array_proxy<BufferBarrier> b);
 
 	void begin_render_pass(const RenderPassDesc& rp);
 	void set_scissor(uint32_t offset, vk::Rect2D scissor);
@@ -129,11 +153,18 @@ struct CommandBuffer
 	void push_constant(void* value, uint32_t size);
 
 	void bind_descriptor_sets(array_proxy<DescriptorSet> sets);
-	void bind_descriptor_sets(array_proxy<DescriptorSetPush> sets);
+	void push_descriptor_set(const DescriptorSetPush& set);
 	void bind_vertex_buffers(array_proxy<Buffer*> buffers);
 	void bind_index_buffer(Buffer* buffer, vk::IndexType type = vk::IndexType::eUint32);
 	void draw(uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance);
 	void draw_indexed(uint32_t index_count, uint32_t instance_count, uint32_t first_index, int32_t vertex_offset, uint32_t first_instance);
+	void dispatch(uint32_t group_size_x, uint32_t group_size_y, uint32_t group_size_z);
+	void dispatch(uvec3 group_size);
+
+	void add_wait_semaphore(WaitSemaphoreInfo&& ws);
+	WaitSemaphoreInfo* get_wait_semaphore();
+
+	void debug_name(std::string_view name);
 
 	vulkan::Device* device;
 	vk::CommandBuffer cmd;
@@ -145,6 +176,7 @@ struct CommandBuffer
 
 	Pipeline* bound_pipe{nullptr};
 	bool is_compute_pso{false};
+	WaitSemaphoreInfo wsem{};
 };
 
 }

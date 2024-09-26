@@ -1,7 +1,7 @@
 export module lumina.core:handle;
 
 import std;
-using std::uint32_t, std::size_t;
+using std::uint32_t, std::uint64_t, std::size_t;
 
 export namespace lumina
 {
@@ -36,6 +36,9 @@ export namespace lumina
 
 	template <typename T>
 	using Handle = StronglyTyped<uint32_t, handle_tag<T>>;
+
+	template <typename T>
+	using Handle64 = StronglyTyped<uint64_t, handle_tag<T>>;
 }
 
 export template <typename T, typename tag>

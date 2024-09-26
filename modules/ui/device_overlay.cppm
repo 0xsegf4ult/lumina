@@ -12,9 +12,6 @@ export namespace lumina::ui
 
 void draw_device_overlay(platform::Window& window, vulkan::Device& device)
 {
-	ImGui::Begin("test");
-	ImGui::End();
-
 	auto [w, h] = window.get_extent();
 	float fps = ImGui::GetIO().Framerate;
 	ImDrawList* draw = ImGui::GetForegroundDrawList();

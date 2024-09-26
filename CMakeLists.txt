@@ -5,6 +5,8 @@ set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD
 
 project(lumina VERSION 0.1 LANGUAGES CXX)
 
+option(LUMINA_TRACY_INTEGRATION "Enable tracy profiler" ON)
+
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -33,6 +35,14 @@ if(NOT LUMINA_PLATFORM)
 	else()
 		message(FATAL_ERROR "Platform ${CMAKE_SYSTEM_NAME} not supported")
 	endif()
+endif()
+
+if(LUMINA_TRACY_INTEGRATION)
+	message("tracy integration enabled")
+	set(TRACY_ENABLE ON)
+else()
+	set(TRACY_ENABLE OFF)
+	remove_definitions(-DTRACY_ENABLE)
 endif()
 
 add_subdirectory("external")

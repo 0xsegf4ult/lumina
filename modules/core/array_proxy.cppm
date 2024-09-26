@@ -21,7 +21,7 @@ public:
 	template <typename B = T, typename std::enable_if<std::is_const<B>::value, int>::type = 0>
 	array_proxy(const std::initializer_list<typename std::remove_const<B>::type>& list) noexcept : _data{list.begin()}, _size{list.size()} {}
 
-	template <typename V, typename std::enable_if<std::is_convertible<decltype(std::declval<V>().data), T*>::value && std::is_convertible<decltype(std::declval<V>().size()), std::size_t>::value>::type * = nullptr>
+	template <typename V, typename std::enable_if<std::is_convertible<decltype(std::declval<V>().data()), T*>::value && std::is_convertible<decltype(std::declval<V>().size()), std::size_t>::value>::type * = nullptr>
 	array_proxy(const V& v) noexcept : _data{v.data()}, _size{v.size()} {}
 
 	const T* begin() const noexcept
@@ -42,6 +42,11 @@ public:
 	const T& back() const noexcept
 	{
 		return *(_data + _size - 1);
+	}
+
+	const T& operator[](std::size_t index) const noexcept
+	{
+		return *(_data + index);
 	}
 
 	bool empty() const noexcept

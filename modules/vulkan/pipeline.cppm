@@ -258,10 +258,14 @@ export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk:
 	std::array<vk::VertexInputAttributeDescription, max_vertex_attributes * max_vertex_bindings> vattr;
 	uint32_t num_vertex_attributes = 0;
 
+
+	uint32_t g_att = 0;
+	uint32_t g_att_offset = 0;
 	for(auto& binding: key.vert_desc)
 	{
 		uint32_t offset = 0;
-		for(uint32_t att = 0; auto& attribute : binding)
+		uint32_t att = 0;
+		for(att = 0; auto& attribute : binding)
 		{
 			auto size = vk_format_size(attribute);
 			if(!size)
@@ -269,12 +273,15 @@ export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk:
 
 			vattr[num_vertex_attributes++] = vk::VertexInputAttributeDescription
 			{
-				att, num_vertex_bindings, attribute, offset
+				att + g_att, num_vertex_bindings, attribute, offset
 			};
 
 			offset += size;
 			att++;
+			
 		}
+		g_att += att;
+		g_att_offset += offset;
 
 		if(!offset)
 			break;

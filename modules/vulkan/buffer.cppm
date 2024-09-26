@@ -91,9 +91,9 @@ struct Buffer
 	void* mapped = nullptr;
 	
 	template <typename T>
-	constexpr T* map() const
+	constexpr T* map(std::uint32_t offset = 0u) const
 	{
-		return reinterpret_cast<T*>(mapped);
+		return reinterpret_cast<T*>(reinterpret_cast<std::byte*>(mapped) + offset);
 	}
 
 	Device* device;

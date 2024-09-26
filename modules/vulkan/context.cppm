@@ -61,7 +61,7 @@ QueueFamilyIndices query_queue_families(vk::PhysicalDevice gpu)
 		return !(qfp.queueFlags & vk::QueueFlagBits::eGraphics) &&
 			(qfp.queueFlags & vk::QueueFlagBits::eCompute);
 	});
-	qf_indices.compute = std::distance(queue_families.begin(), iter);
+	qf_indices.compute = (iter != queue_families.end()) ? std::distance(queue_families.begin(), iter) : qf_indices.graphics;
 
 	iter = std::find_if(queue_families.begin(), queue_families.end(),
 	[](const vk::QueueFamilyProperties& qfp)
@@ -70,7 +70,7 @@ QueueFamilyIndices query_queue_families(vk::PhysicalDevice gpu)
 		       !(qfp.queueFlags & vk::QueueFlagBits::eCompute) &&
 			(qfp.queueFlags & vk::QueueFlagBits::eTransfer);
 	});
-	qf_indices.transfer = std::distance(queue_families.begin(), iter);
+	qf_indices.transfer = (iter != queue_families.end()) ? std::distance(queue_families.begin(), iter) : qf_indices.graphics;
 
 	return qf_indices;
 }
@@ -212,7 +212,7 @@ public:
 		}
 
 		// FIXME: make configurable
-		vk::StructureChain<vk::DeviceCreateInfo, vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan12Features, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceHostImageCopyFeaturesEXT> chain =
+		vk::StructureChain<vk::DeviceCreateInfo, vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan12Features, vk::PhysicalDeviceVulkan13Features> chain =
 		{
 			{
 				.queueCreateInfoCount = static_cast<uint32_t>(queue_ci.size()),
@@ -230,7 +230,7 @@ public:
 					.multiDrawIndirect = true,
 					.drawIndirectFirstInstance = true,
 					.fillModeNonSolid = true,
-					.depthBounds = true,
+					//FIXME: llvmpipe not supported .depthBounds = true,
 					.samplerAnisotropy = true,
 					.textureCompressionBC = true
 				}
@@ -248,9 +248,6 @@ public:
 			{
 				.synchronization2 = true,
 				.dynamicRendering = true,
-			},
-			{
-				.hostImageCopy = true
 			}
 		};
 
@@ -258,7 +255,7 @@ public:
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(dh);
 		//FIXME: check for features
 		DeviceFeatures feat{false};
-		return {dh, gpu, feat};
+		return {dh, handle, gpu, feat};
 	}
 
 	vk::Instance get_handle() const

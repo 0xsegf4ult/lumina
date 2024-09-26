@@ -23,32 +23,22 @@ struct CommandPool
 	vk::CommandPool handle;
 	std::vector<vk::CommandBuffer> buffers{};
 	size_t current{0u};
-};
-
-struct ExecutionContext
-{
-	std::array<std::vector<CommandPool>, num_queues> cmd_pools;
-	std::array<uint64_t, num_queues> timelines;
-
-	struct WSISync
-	{
-		vk::Semaphore acquire;
-		vk::Semaphore present;
-		bool signaled = false;
-	} wsi;
-
-	std::vector<vk::DeviceMemory> released_mem;
-	std::vector<vk::Image> released_images;
-	std::vector<vk::ImageView> released_image_views;
-	std::vector<vk::Pipeline> released_pipelines;
-	std::vector<vk::PipelineLayout> released_pipeline_layouts;
-	std::vector<vk::Buffer> released_buffers;
+	std::atomic<uint32_t> cmd_counter = 0;
+	std::mutex lock;
 };
 
 }
 
 export namespace lumina::vulkan
 {
+
+constexpr uint32_t group_count(uint32_t threads, uint32_t localsize)
+{
+	return (threads + localsize - 1) / localsize;
+}
+
+struct submit_signal_timeline_t {};
+constexpr submit_signal_timeline_t submit_signal_timeline;
 
 struct GPUInfo
 {
@@ -70,19 +60,16 @@ struct DeviceFeatures
 	bool has_swapchain_maintenance_ext{false};
 };
 
-struct Fence
+struct ReleaseRequest
 {
-	Fence() : semaphore{nullptr}, timeline{0u} {}
-	Fence(vk::Semaphore sem, uint64_t t) : semaphore{sem}, timeline{t} {}
-
-	vk::Semaphore semaphore;
+	std::variant<vk::Buffer, vk::Image, vk::ImageView, vk::DeviceMemory> resource;
 	uint64_t timeline;
 };
 
 class Device
 {
 public:
-	Device(vk::Device _handle, GPUInfo _gpu, DeviceFeatures _features);
+	Device(vk::Device _handle, vk::Instance owner, GPUInfo _gpu, DeviceFeatures _features);
 	~Device();
 	
 	Device(const Device&) = delete;
@@ -96,6 +83,7 @@ public:
 	DeviceFeatures get_features() const;
 	std::optional<uint32_t> get_memory_type(uint32_t type, vk::MemoryPropertyFlags flags) const;
 	vk::Queue get_queue(Queue queue) const;
+	uint32_t get_queue_index(Queue queue) const;	
 	vk::Sampler get_prefab_sampler(SamplerPrefab sampler) const;
 
 	constexpr std::string_view get_name() const
@@ -124,38 +112,35 @@ public:
 	ImageHandle create_image(const ImageKey& key);	
 	ImageViewHandle create_image_view(const ImageViewKey& key);
 
-	void release_buffer(vk::Buffer buffer);
-	void release_image(vk::Image image);
-	void release_image_view(vk::ImageView view);
-	void release_memory(vk::DeviceMemory mem);
-
 	CommandBuffer request_command_buffer(Queue queue = Queue::Graphics);
-	void submit(CommandBuffer& cmd, Fence* fence = nullptr);
+	void submit(CommandBuffer& cmd);
+	uint64_t submit(CommandBuffer& cmd, submit_signal_timeline_t);
 	
+	void submit_queue(Queue queue, uint64_t* sig_timeline = nullptr);
+	void submit_queue_nolock(Queue queue, uint64_t* sig_timeline = nullptr);
+
 	vk::Semaphore wsi_signal_acquire();
 	vk::Semaphore wsi_signal_present();
 	
-	bool wait_for_fence(Fence& f);
-	bool wait_for_fences(std::initializer_list<Fence*> fv);
+	bool wait_timeline(Queue queue, uint64_t value);
 
 	void wait_idle();
-	void end_context();
-	void next_context();
 
+	void advance_timeline(Queue queue);
+	
 	Pipeline* try_get_pipeline(const GraphicsPSOKey& key);
 	Pipeline* try_get_pipeline(const ComputePSOKey& key);
+	vk::DescriptorSetLayout get_descriptor_set_layout(const DescriptorSetLayoutKey& key, bool is_push);
+
+	void release_resource(Queue queue, ReleaseRequest&& req);
+	void destroy_resources(Queue queue);
 private:
-	ExecutionContext& exec_context()
-	{
-		return ectx_data[cur_ctx];
-	}
-
-	void submit_queue(Queue queue, Fence* fence = nullptr);
-	void context_release_objects(ExecutionContext& ctx);
-
 	vk::Device handle;
+	vk::Instance instance;
 	GPUInfo gpu;
 	DeviceFeatures features;
+
+	constexpr static size_t num_ctx = 2;
 
 	struct SubmitBatch
 	{
@@ -168,26 +153,35 @@ private:
 	{
 		vk::Queue handle;
 		uint32_t index;
+		
+		std::mutex queue_lock;
 
 		vk::Semaphore semaphore;
 		uint64_t timeline{0u};
+		std::atomic<uint64_t> frame_counter{0u};
+
+		std::array<uint64_t, num_ctx> frame_tvals{0};
+		std::array<std::vector<CommandPool>, num_ctx> cpools;
 
 		std::vector<CommandBuffer> submissions;
 		std::vector<SubmitBatch> batch_data;
 		std::vector<vk::SubmitInfo2> submit_batches;
+
+		std::vector<ReleaseRequest> released_resources;
 	};
 	std::array<QueueData, num_queues> queues;
 
-	std::mutex cmd_lock;
-	std::condition_variable unlock_cond;
-	uint32_t cmd_counter{0u};
+	struct WSISync
+	{
+		vk::Semaphore acquire;
+		vk::Semaphore present;
+		bool signaled = false;
+	};
+	std::array<WSISync, num_ctx> wsi_sync;
+	uint64_t wsi_timeline;
 
 	vk::DeviceSize vmem_usage{0};
 	vk::DeviceSize vmem_budget{0};
-
-	size_t cur_ctx = 0;
-	static constexpr size_t num_ctx = 2;
-	std::array<ExecutionContext, num_ctx> ectx_data;
 
 	std::array<vk::Sampler, 3> sampler_prefabs;
 
@@ -203,7 +197,6 @@ private:
 		std::unordered_map<DescriptorSetLayoutKey, vk::DescriptorSetLayout> layout_data;
 		std::shared_mutex layout_lock;
 	} ds_cache;
-	vk::DescriptorSetLayout get_descriptor_set_layout(const DescriptorSetLayoutKey& key);
 
 	struct PipelineCache
 	{
@@ -220,7 +213,8 @@ private:
 	PipelineLayout& get_pipeline_layout(const PipelineLayoutKey& key);
 
 	BufferHandle upload_buffer;
-	constexpr static uint32_t upload_buffer_size = 16 * 1024 * 1024;	
+	constexpr static uint32_t upload_buffer_size = 16 * 1024 * 1024;
+
 };
 
 }

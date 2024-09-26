@@ -76,7 +76,7 @@ void worker(uint32_t id)
 {
 	job_t* j;
 
-	current_thread_id = id;
+	current_thread_id = id + 1;
 
 	auto& this_thread = ctx->threads[id];
 	g_jobAllocator = new job_t[max_concurrent_jobs];
@@ -211,6 +211,9 @@ job_t* schedule(std::function<void()>&& f)
 	j->finished = false;
 	j->jobs_running = 1u;
 
+	if(current_thread_id)
+	{
+
 	auto& this_thread = ctx->threads[current_thread_id];
 	if(this_thread.active_job)
 	{
@@ -220,6 +223,8 @@ job_t* schedule(std::function<void()>&& f)
 	else
 	{
 		j->parent = nullptr;
+	}
+
 	}
 
 	{

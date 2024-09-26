@@ -1,3 +1,9 @@
+module;
+
+#include <vulkan/vulkan_core.h>
+#include <cassert>
+#include <tracy/Tracy.hpp>
+
 module lumina.vulkan:impl_device;
 
 import :device;
@@ -15,16 +21,21 @@ import lumina.core;
 
 using std::size_t, std::uint32_t, std::uint64_t, std::memcpy;
 
+template <typename... T>
+struct overloaded : T... { using T::operator()...; };
+
 namespace lumina::vulkan
 {
 
 constexpr size_t sem_wait_timeout = 1000000000;
 
-Device::Device(vk::Device _handle, GPUInfo _gpu, DeviceFeatures _features) : handle{_handle}, gpu{_gpu}, features{_features}
+Device::Device(vk::Device _handle, vk::Instance owner, GPUInfo _gpu, DeviceFeatures _features) : handle{_handle}, instance{owner}, gpu{_gpu}, features{_features}
 {
         queues[0].index = gpu.qf_indices.graphics.value();
         queues[1].index = gpu.qf_indices.compute.value_or(queues[0].index);
         queues[2].index = gpu.qf_indices.transfer.value_or(queues[0].index);
+
+	//log::debug("assigned qindices gfx {} compute {} transfer {}", queues[0].index, queues[1].index, queues[2].index);
 
         vk::StructureChain<vk::SemaphoreCreateInfo, vk::SemaphoreTypeCreateInfo> sem_chain
         {
@@ -39,33 +50,31 @@ Device::Device(vk::Device _handle, GPUInfo _gpu, DeviceFeatures _features) : han
         {
                 qd.handle = handle.getQueue(qd.index, 0);
                 qd.semaphore = handle.createSemaphore(sem_chain.get<vk::SemaphoreCreateInfo>());
+	//	log::debug("create semaphore {:#x}", reinterpret_cast<uint64_t>(static_cast<VkSemaphore>(qd.semaphore)));
                 set_object_name(qd.semaphore, get_queue_name(static_cast<Queue>(qd.index)).data() + std::string{" timeline"});
                 qd.timeline = 0;
-        }
 
-        for(auto i = 0u; i < num_ctx; i++)
-        {
-                auto& ctx = ectx_data[i];
-
-                for(auto& qd : queues)
-                {
-                        ctx.cmd_pools[qd.index].resize(std::thread::hardware_concurrency());
-
-                        for(auto& cpool : ctx.cmd_pools[qd.index])
+		for(auto i = 0u; i < num_ctx; i++)
+		{
+			std::vector<CommandPool> cpl(std::thread::hardware_concurrency());
+			qd.cpools[i].swap(cpl);
+			for(auto& cpool : qd.cpools[i])
 			{
 				cpool.handle = handle.createCommandPool
 				({
 					.flags = vk::CommandPoolCreateFlagBits::eTransient,
-					.queueFamilyIndex = qd.index,
+					.queueFamilyIndex = qd.index
 				});
 			}
+		}
+        }
 
-                        ctx.timelines[qd.index] = 0;
-                }
-                ctx.wsi.acquire = handle.createSemaphore({});
-                set_object_name(ctx.wsi.acquire, "wsi_acquire_f" + std::to_string(i));
-                ctx.wsi.present = handle.createSemaphore({});
-                set_object_name(ctx.wsi.present, "wsi_present_f" + std::to_string(i));
+        for(auto i = 0u; i < num_ctx; i++)
+        {
+                wsi_sync[i].acquire = handle.createSemaphore({});
+                set_object_name(wsi_sync[i].acquire, "wsi_acquire_f" + std::to_string(i));
+                wsi_sync[i].present = handle.createSemaphore({});
+                set_object_name(wsi_sync[i].present, "wsi_present_f" + std::to_string(i));
         }
 
 	vk::SamplerCreateInfo sampler_ci
@@ -133,20 +142,24 @@ Device::~Device()
         for(auto& sampler : sampler_prefabs)
                 handle.destroySampler(sampler);
 
-        for(auto& ctx : ectx_data)
+	for(auto& wsi : wsi_sync)
+	{
+                handle.destroySemaphore(wsi.acquire);
+                handle.destroySemaphore(wsi.present);
+	}
+
+	for(auto& qd : queues)
         {
-                handle.destroySemaphore(ctx.wsi.acquire);
-                handle.destroySemaphore(ctx.wsi.present);
-
-                for(auto& qp : ctx.cmd_pools)
-                {
-                        for(auto& pool : qp)
-                                handle.destroyCommandPool(pool.handle);
-                }
+		for(auto i = 0u; i < num_ctx; i++)
+		{
+			for(auto& pool : qd.cpools[i])
+			{
+				handle.destroyCommandPool(pool.handle);
+			}
+		}
+                
+		handle.destroySemaphore(qd.semaphore);
         }
-
-        for(auto& qd : queues)
-                handle.destroySemaphore(qd.semaphore);
 
         handle.destroy();
 }
@@ -168,7 +181,16 @@ DeviceFeatures Device::get_features() const
 
 vk::Queue Device::get_queue(Queue queue) const
 {
+	assert(queue != Queue::Invalid);
 	return queues[static_cast<size_t>(queue)].handle;
+}
+
+uint32_t Device::get_queue_index(Queue queue) const
+{
+	if(queue == Queue::Invalid)
+		return vk::QueueFamilyIgnored;
+
+	return queues[static_cast<size_t>(queue)].index;
 }
 
 std::optional<uint32_t> Device::get_memory_type(uint32_t type, vk::MemoryPropertyFlags flags) const
@@ -193,6 +215,7 @@ vk::Sampler Device::get_prefab_sampler(SamplerPrefab prefab) const
 
 BufferHandle Device::create_buffer(const BufferKey& key)
 {
+	ZoneScoped;
         vk::Buffer buf = handle.createBuffer
         ({
                 .size = key.size,
@@ -201,6 +224,7 @@ BufferHandle Device::create_buffer(const BufferKey& key)
         });
         set_object_name(buf, key.debug_name);
 
+	//log::debug("create buffer: {} @ {:#x}", key.debug_name, reinterpret_cast<std::uint64_t>(static_cast<VkBuffer>(buf)));
         auto mem_req = handle.getBufferMemoryRequirements(buf);
         auto mem_idx = get_memory_type(mem_req.memoryTypeBits, decode_buffer_domain(key.domain));
 
@@ -236,6 +260,7 @@ ImageHandle Device::proxy_image(const ImageKey& key, vk::Image object)
 
 ImageHandle Device::create_image(const ImageKey& key)
 {
+	ZoneScoped;
 	vk::ImageType type = image_type_from_size(key.width, key.height, key.depth);
 
 	vk::ImageUsageFlagBits default_usage_flags = vk::ImageUsageFlagBits{};
@@ -293,19 +318,19 @@ ImageHandle Device::create_image(const ImageKey& key)
 		auto cb = request_command_buffer();
 		{
 			cb.pipeline_barrier
-			({
+			({{
 				.src_stage = vk::PipelineStageFlagBits2::eTopOfPipe,
 				.dst_stage = vk::PipelineStageFlagBits2::eTransfer,
 				.dst_access = vk::AccessFlagBits2::eTransferWrite,
 				.src_layout = vk::ImageLayout::eUndefined,
 				.dst_layout = vk::ImageLayout::eTransferDstOptimal,
 				.image = img.get()
-			});
+			}});
 
 			cb.vk_object().copyBufferToImage(upload_buffer->handle, image, vk::ImageLayout::eTransferDstOptimal, {copy_region});
 
 			cb.pipeline_barrier
-			({
+			({{
 				.src_stage = vk::PipelineStageFlagBits2::eTransfer,
 				.src_access = vk::AccessFlagBits2::eTransferWrite,
 				.dst_stage = vk::PipelineStageFlagBits2::eComputeShader | vk::PipelineStageFlagBits2::eFragmentShader,
@@ -313,7 +338,7 @@ ImageHandle Device::create_image(const ImageKey& key)
 				.src_layout = vk::ImageLayout::eTransferDstOptimal,
 				.dst_layout = vk::ImageLayout::eShaderReadOnlyOptimal,
 				.image = img.get()
-			});
+			}});
 
 		}
 		submit(cb);
@@ -324,6 +349,7 @@ ImageHandle Device::create_image(const ImageKey& key)
 
 ImageViewHandle Device::create_image_view(const ImageViewKey& key)
 {
+	ZoneScoped;
 	vk::ImageView vh = handle.createImageView
 	({
 		.image = key.image->get_handle(),
@@ -348,37 +374,27 @@ ImageViewHandle Device::create_image_view(const ImageViewKey& key)
 	return ImageViewHandle{std::make_unique<ImageView>(this, key, vh)};
 }
 
-void Device::release_buffer(vk::Buffer buffer)
+void Device::release_resource(Queue queue, ReleaseRequest&& req)
 {
-	exec_context().released_buffers.push_back(buffer);
-}
-
-void Device::release_memory(vk::DeviceMemory mem)
-{
-	exec_context().released_mem.push_back(mem);
-}
-
-void Device::release_image(vk::Image img)
-{
-	exec_context().released_images.push_back(img);
-}
-
-void Device::release_image_view(vk::ImageView view)
-{
-	exec_context().released_image_views.push_back(view);
+	queues[static_cast<size_t>(queue)].released_resources.emplace_back(std::move(req));
 }
 
 CommandBuffer Device::request_command_buffer(Queue queue)
 {
-	std::scoped_lock<std::mutex> lock{cmd_lock};
+	ZoneScoped;
 	auto threadID = job::get_thread_id();
 	vk::CommandBuffer cmd;
 
-	auto& cpool = exec_context().cmd_pools[static_cast<size_t>(queue)][threadID];
+	auto& qd = queues[static_cast<size_t>(queue)];
+	auto fidx = qd.frame_counter.load() % num_ctx;
+
+	auto& cpool = qd.cpools[fidx][threadID];
+	std::scoped_lock<std::mutex> r_lock{cpool.lock};
 	if(cpool.current < cpool.buffers.size())
 		cmd = cpool.buffers[cpool.current++];
 	else
 	{
+		ZoneScopedN("allocate_cmdbuf");
 		cmd = handle.allocateCommandBuffers
 		({
 			.commandPool = cpool.handle,
@@ -390,48 +406,86 @@ CommandBuffer Device::request_command_buffer(Queue queue)
 		cpool.current++;
 	}
 
-	set_object_name(cmd, "cmd_generic::thread" + std::to_string(threadID));
+	set_object_name(cmd, std::format("cmd_{}::thread{}", get_queue_name(queue), threadID));
 
 	vk::CommandBufferBeginInfo bufbegin
 	{
 		.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit
 	};
 	cmd.begin(bufbegin);
-	cmd_counter++;
-	return {this, cmd, threadID, queue, cur_ctx};
+	cpool.cmd_counter++;
+	//if(threadID != 0)
+	//	log::debug("request_cbuf: queue {}[{}] f{} cmd counter is now {}", get_queue_name(queue), threadID, fidx, cpool.cmd_counter.load()); 
+	return {this, cmd, threadID, queue, fidx};
 }
 
-void Device::submit(CommandBuffer& cmd, Fence* fence)
+void Device::submit(CommandBuffer& cmd)
 {
+	ZoneScoped;
+	assert(cmd.thread == job::get_thread_id());
 	cmd.vk_object().end();
 
-	std::scoped_lock<std::mutex> lock{cmd_lock};
-
 	auto& queue = queues[static_cast<size_t>(cmd.queue)];
-	queue.submissions.push_back(std::move(cmd));
 
-	if(fence)
-		submit_queue(cmd.queue, fence);
-
-	cmd_counter--;
-	unlock_cond.notify_all();
+	auto& pool = queue.cpools[cmd.ctx_index][cmd.thread];
+	
+	{
+		
+	std::scoped_lock<std::mutex> r_lock{pool.lock};
+	if(pool.cmd_counter < 1)
+	{
+		log::warn("submit: queue {}[{}] f{} has no active cmdbuffers val {}", get_queue_name(cmd.queue), cmd.thread, cmd.ctx_index, pool.cmd_counter.load());
+		log::critical("submit to queue with no allocated cmd buffers");
+		std::abort();
+	}
+	else
+	{
+		pool.cmd_counter--;
+		//if(cmd.thread != 0)
+		//	log::debug("submit: queue {}[{}] f{} cmd counter is now {}", get_queue_name(cmd.queue), cmd.thread, cmd.ctx_index, pool.cmd_counter.load());
+	}
+	
+	}
+	
+	{
+		std::scoped_lock<std::mutex> qlock{queue.queue_lock};
+		queue.submissions.push_back(std::move(cmd));
+	}
 }
 
-void Device::submit_queue(Queue queue, Fence* fence)
+uint64_t Device::submit(CommandBuffer& cmd, submit_signal_timeline_t)
 {
+	ZoneScoped;
+	submit(cmd);
+
+	uint64_t val;
+	submit_queue(cmd.queue, &val);
+	return val;
+}
+
+void Device::submit_queue(Queue queue, uint64_t* sig_timeline)
+{
+	std::scoped_lock<std::mutex> qlock{queues[static_cast<size_t>(queue)].queue_lock};
+	submit_queue_nolock(queue, sig_timeline);
+}
+
+void Device::submit_queue_nolock(Queue queue, uint64_t* sig_timeline)
+{
+	ZoneScoped;
+
 	auto& qd = queues[static_cast<size_t>(queue)];
 	qd.batch_data.clear();
 	qd.submit_batches.clear();
 
 	if(qd.submissions.empty())
 	{
-		if(fence)
-			log::warn("vulkan::Device::submit_queue: empty queue submit requests fence wait!?");
+		if(sig_timeline)
+			log::warn("submit_queue: empty queue submit requests timeline signal!?");
 		return;
 	}
 
 	++qd.timeline;
-	exec_context().timelines[static_cast<size_t>(queue)] = qd.timeline;
+	qd.frame_tvals[qd.frame_counter % num_ctx] = qd.timeline;
 
 	uint32_t cur_batch = 0;
 	qd.batch_data.push_back({});
@@ -441,31 +495,55 @@ void Device::submit_queue(Queue queue, Fence* fence)
 		auto wsi_stages = cmd.requires_wsi_sync();
 		auto batch = &qd.batch_data[cur_batch];
 
+		auto wsem = cmd.get_wait_semaphore();
+		if(wsem)
+		{
+			if(!batch->cmd.empty() || !batch->signal_sem.empty())
+			{
+	//			log::debug("split batch on wait");
+				cur_batch++;
+				qd.batch_data.push_back({});
+				qd.submit_batches.push_back({});
+				batch = &qd.batch_data[cur_batch];
+			}
+
+	//		log::debug("batch has waitsem");
+			batch->wait_sem.push_back
+			({
+				.semaphore = queues[static_cast<size_t>(wsem->wait_queue)].semaphore,
+				.value = wsem->wait_value,
+				.stageMask = wsem->wait_stages
+			});
+		}
+
 		if(!batch->signal_sem.empty())
 		{
+	//		log::debug("split batch on signal");
 			cur_batch++;
 			qd.batch_data.push_back({});
 			qd.submit_batches.push_back({});
 			batch = &qd.batch_data[cur_batch];
 		}
-
-		if(wsi_stages)
+		
+		if(wsi_stages && queue == Queue::Graphics)
 		{
-			if(!exec_context().wsi.signaled)
+			auto wsi_timeline = queues[static_cast<size_t>(Queue::Graphics)].frame_counter.load();
+			auto& wsi = wsi_sync[wsi_timeline % num_ctx];
+			if(!wsi.signaled)
 			{
 				batch->wait_sem.push_back
 				({
-					.semaphore = exec_context().wsi.acquire,
+					.semaphore = wsi.acquire,
 					.value = 0,
 					.stageMask = wsi_stages
 				});
 				batch->signal_sem.push_back
 				({
-					.semaphore = exec_context().wsi.present,
+					.semaphore = wsi.present,
 					.value = 0,
 					.stageMask = vk::PipelineStageFlagBits2::eAllCommands
 				});
-				exec_context().wsi.signaled = true;
+				wsi.signaled = true;
 			}
 			else
 				log::error("build_submit_batches: WSI already signaled!");
@@ -484,11 +562,8 @@ void Device::submit_queue(Queue queue, Fence* fence)
 		.stageMask = vk::PipelineStageFlagBits2::eAllCommands
 	});
 
-	if(fence)
-	{
-		fence->semaphore = qd.semaphore;
-		fence->timeline = qd.timeline;
-	}
+	if(sig_timeline)
+		*sig_timeline = qd.timeline;
 
 	for(size_t i = 0; i < qd.batch_data.size(); i++)
         {
@@ -510,174 +585,136 @@ void Device::submit_queue(Queue queue, Fence* fence)
 
 vk::Semaphore Device::wsi_signal_acquire()
 {
-	return exec_context().wsi.acquire;
+	auto wsi_timeline = queues[static_cast<size_t>(Queue::Graphics)].frame_counter.load();
+	return wsi_sync[wsi_timeline % num_ctx].acquire;
 }
 
 vk::Semaphore Device::wsi_signal_present()
 {
-	return exec_context().wsi.present;
+	auto wsi_timeline = queues[static_cast<size_t>(Queue::Graphics)].frame_counter.load();
+	return wsi_sync[wsi_timeline % num_ctx].present;
 }
 
-bool Device::wait_for_fence(Fence& fence)
+bool Device::wait_timeline(Queue queue, uint64_t val)
 {
+	ZoneScoped;
 	vk::SemaphoreWaitInfo wait;
 	wait.semaphoreCount = 1;
-	wait.pSemaphores = &fence.semaphore;
-	wait.pValues = &fence.timeline;
+	wait.pSemaphores = &queues[static_cast<size_t>(queue)].semaphore;
+	wait.pValues = &val;
 
 	auto result = handle.waitSemaphores(wait, sem_wait_timeout);
 	if(result == vk::Result::eTimeout)
 	{
-		log::error("wait_for_fence: timed out");
+		uint64_t g_val;
+		[[maybe_unused]] auto s1 = handle.getSemaphoreCounterValue(queues[static_cast<size_t>(queue)].semaphore, &g_val);
+		log::error("wait_timeline: timed out waiting for signal {:#x}, current is {:#x}", val, g_val);
 		return false;
 	}
+
 	return true;
 }
 
-bool Device::wait_for_fences(std::initializer_list<Fence*> fences)
+void Device::destroy_resources(Queue queue)
 {
-	std::vector<vk::Semaphore> sems;
-	std::vector<uint64_t> tv;
+	auto& qd = queues[static_cast<size_t>(queue)];
 
-	for(auto f : fences)
+	for(auto& req : qd.released_resources)
 	{
-		sems.push_back(f->semaphore);
-		tv.push_back(f->timeline);
+		std::visit(overloaded
+		{
+			[this](vk::Buffer buf){handle.destroyBuffer(buf);},
+			[this](vk::Image img){handle.destroyImage(img);},
+			[this](vk::ImageView view){handle.destroyImageView(view);},
+			[this](vk::DeviceMemory mem){handle.freeMemory(mem);}
+		}, req.resource);
 	}
-
-	vk::SemaphoreWaitInfo wait;
-	wait.semaphoreCount = static_cast<uint32_t>(sems.size());
-	wait.pSemaphores = sems.data();
-	wait.pValues = tv.data();
-
-	auto result = handle.waitSemaphores(wait, sem_wait_timeout);
-	if(result == vk::Result::eTimeout)
-	{
-		log::error("wait_for_fences: timed out");
-		return false;
-	}
-	return true;
+	qd.released_resources.clear();
 }
 
 void Device::wait_idle()
 {
 	handle.waitIdle();
-
-	for(auto& ctx : ectx_data)
-		context_release_objects(ctx);
-}
-
-void Device::end_context()
-{
-	{
-		std::unique_lock<std::mutex> lock{cmd_lock};
-		unlock_cond.wait(lock, [this]()
-		{
-			return cmd_counter == 0;
-		});
-	}
-
-	submit_queue(Queue::Transfer);
-	submit_queue(Queue::Graphics);
-	submit_queue(Queue::Compute);
-}
-
-void Device::next_context()
-{
-	end_context();
-
-	std::scoped_lock<std::mutex> lock{cmd_lock};
-
-	cur_ctx = (cur_ctx + 1) % num_ctx;
-	ExecutionContext& cur = exec_context();
-
-	{
-		vk::SemaphoreWaitInfo wait{};
-		vk::Semaphore s[num_queues];
-		uint64_t t[num_queues] = {0, 0, 0};
-		for(auto i = 0u; i < num_queues; i++)
-		{
-			if(cur.timelines[i])
-			{
-				s[wait.semaphoreCount] = queues[i].semaphore;
-				t[wait.semaphoreCount] = cur.timelines[i];
-				wait.semaphoreCount++;
-			}
-		}
-
-		if(wait.semaphoreCount)
-		{
-			wait.pSemaphores = s;
-			wait.pValues = t;
-
-			auto result = handle.waitSemaphores(wait, sem_wait_timeout);
-			if(result == vk::Result::eTimeout)
-			{ 
-				uint64_t vals[3];
-                                [[maybe_unused]] auto s1 = handle.getSemaphoreCounterValue(queues[0].semaphore, vals);
-                                [[maybe_unused]] auto s2 = handle.getSemaphoreCounterValue(queues[1].semaphore, vals + 1);
-                                [[maybe_unused]] auto s3 = handle.getSemaphoreCounterValue(queues[2].semaphore, vals + 2);
-                                log::warn("gpu_frame_timeline wait [cpu_timelines gfx: {}, compute: {}, transfer: {}][gpu_timelines gfx: {}, compute: {}, transfer: {}] timed out!", cur.timelines[0], cur.timelines[1], cur.timelines[2], vals[0], vals[1], vals[2]);
-			}
-		}
-	}
-
-	cur.wsi.signaled = false;
-	context_release_objects(cur);
-
-	auto chain = gpu.handle.getMemoryProperties2<vk::PhysicalDeviceMemoryProperties2, vk::PhysicalDeviceMemoryBudgetPropertiesEXT>();
-
-        const vk::PhysicalDeviceMemoryProperties& props = chain.get<vk::PhysicalDeviceMemoryProperties2>().memoryProperties;
-        const vk::PhysicalDeviceMemoryBudgetPropertiesEXT& budget = chain.get<vk::PhysicalDeviceMemoryBudgetPropertiesEXT>();
-
-        {
-
-        vk::MemoryPropertyFlags flags = decode_buffer_domain(vulkan::BufferDomain::Device);
-        uint32_t index = 0;
-        for(uint32_t i = 0; i < props.memoryTypeCount; i++)
-                if(props.memoryTypes[i].propertyFlags == flags)
-                        index = props.memoryTypes[i].heapIndex;
-
-        vmem_usage = budget.heapUsage[index];
-        vmem_budget = budget.heapBudget[index];
-
-        }
-}
-
-void Device::context_release_objects(ExecutionContext& ctx)
-{
-	for(auto buf : ctx.released_buffers)
-		handle.destroyBuffer(buf);
-
-	for(auto view : ctx.released_image_views)
-		handle.destroyImageView(view);
 	
-	for(auto img : ctx.released_images)
-		handle.destroyImage(img);
+	destroy_resources(Queue::Graphics);
+	destroy_resources(Queue::Compute);
+	destroy_resources(Queue::Transfer);
+}
 
-	for(auto mem : ctx.released_mem)
-		handle.freeMemory(mem);
+void Device::advance_timeline(Queue queue)
+{
+	ZoneScoped;
+	auto& qd = queues[static_cast<size_t>(queue)];
+	std::scoped_lock<std::mutex> qlock{qd.queue_lock};
+	submit_queue_nolock(queue);
 
-	ctx.released_mem.clear();
-	ctx.released_images.clear();
-	ctx.released_image_views.clear();
-	ctx.released_buffers.clear();
+	qd.frame_counter++;
 
-	if(cmd_counter)
-		log::error("vulkan::Device: cmdpool reset with {} unsubmitted command buffers", cmd_counter);
+	auto fidx = qd.frame_counter.load() % num_ctx;
 
-	for(auto& qp : ctx.cmd_pools)
 	{
-		for(auto& pool : qp)
+		vk::SemaphoreWaitInfo wait;
+		wait.semaphoreCount = 1;
+		wait.pSemaphores = &qd.semaphore;
+		wait.pValues = &qd.frame_tvals[fidx];
+
+		auto result = handle.waitSemaphores(wait, sem_wait_timeout);
+		if(result == vk::Result::eTimeout)
+		{
+			uint64_t val;
+			[[maybe_unused]] auto s1 = handle.getSemaphoreCounterValue(qd.semaphore, &val);
+			log::warn("gpu timeline wait on queue {} timed out [cpu {:#x}][gpu {:#x}]", get_queue_name(queue), qd.frame_tvals[fidx], val);
+			std::abort();
+		}
+	}
+
+	if(queue == Queue::Graphics)
+		wsi_sync[fidx].signaled = false;
+
+	destroy_resources(queue);
+
+//	log::debug("advance {} timeline f{}", get_queue_name(queue), fidx);
+	for(uint32_t tid = 0; auto& pool : qd.cpools[fidx])
+	{
+		std::scoped_lock<std::mutex> r_lock{pool.lock};
+		if(pool.cmd_counter == 0)
 		{
 			pool.current = 0;
 			handle.resetCommandPool(pool.handle);
+		}
+		else
+		{
+			log::debug("extending cmdpool {}[{}] lifetime, {} unsubmitted", get_queue_name(queue), tid, pool.cmd_counter.load());
+		}
+		tid++;
+	}
+
+	// update memory budget ocassionally
+	if(qd.frame_counter % 60 == 0 && queue == Queue::Graphics)
+	{
+		auto chain = gpu.handle.getMemoryProperties2<vk::PhysicalDeviceMemoryProperties2, vk::PhysicalDeviceMemoryBudgetPropertiesEXT>();
+
+		const vk::PhysicalDeviceMemoryProperties& props = chain.get<vk::PhysicalDeviceMemoryProperties2>().memoryProperties;
+		const vk::PhysicalDeviceMemoryBudgetPropertiesEXT& budget = chain.get<vk::PhysicalDeviceMemoryBudgetPropertiesEXT>();
+
+		{
+
+		vk::MemoryPropertyFlags flags = decode_buffer_domain(vulkan::BufferDomain::Device);
+		uint32_t index = 0;
+		for(uint32_t i = 0; i < props.memoryTypeCount; i++)
+			if(props.memoryTypes[i].propertyFlags == flags)
+				index = props.memoryTypes[i].heapIndex;
+
+		vmem_usage = budget.heapUsage[index];
+		vmem_budget = budget.heapBudget[index];
+
 		}
 	}
 }
 
 Shader* Device::try_get_shader(const std::filesystem::path& path)
 {
+	ZoneScoped;
 	Handle<Shader> shandle{fnv::hash(path.c_str())};
 	
 	{
@@ -702,8 +739,9 @@ Shader* Device::try_get_shader(const std::filesystem::path& path)
 	}
 }
 
-vk::DescriptorSetLayout Device::get_descriptor_set_layout(const DescriptorSetLayoutKey& key)
+vk::DescriptorSetLayout Device::get_descriptor_set_layout(const DescriptorSetLayoutKey& key, bool is_push)
 {
+	ZoneScoped;
 	{
 		std::shared_lock<std::shared_mutex> lock{ds_cache.layout_lock};
 		if(ds_cache.layout_data.contains(key)) [[likely]]
@@ -713,7 +751,7 @@ vk::DescriptorSetLayout Device::get_descriptor_set_layout(const DescriptorSetLay
 	{
 		std::unique_lock<std::shared_mutex> lock{ds_cache.layout_lock, std::defer_lock};
 
-		auto result = create_descriptor_layout(handle, key);
+		auto result = create_descriptor_layout(handle, key, is_push);
 
 		lock.lock();
 		ds_cache.layout_data[key] = result;
@@ -723,6 +761,7 @@ vk::DescriptorSetLayout Device::get_descriptor_set_layout(const DescriptorSetLay
 
 PipelineLayout& Device::get_pipeline_layout(const PipelineLayoutKey& key)
 {
+	ZoneScoped;
 	{
 		std::shared_lock<std::shared_mutex> lock{pso_cache.layout_lock};
 		if(pso_cache.layout_data.contains(key)) [[likely]]
@@ -739,7 +778,9 @@ PipelineLayout& Device::get_pipeline_layout(const PipelineLayoutKey& key)
 			if(dslkey.is_empty())
 				break;
 
-			layout.ds_layouts[num_dsl++] = get_descriptor_set_layout(dslkey);
+			// first layout is push descriptor
+			layout.ds_layouts[num_dsl] = get_descriptor_set_layout(dslkey, num_dsl == 0 ? true : false);
+			num_dsl++;
 		}
 
 		log::debug("creating pipeline layout with {} descriptor sets, pconst size {}", num_dsl, key.pconst.size);
@@ -754,13 +795,14 @@ PipelineLayout& Device::get_pipeline_layout(const PipelineLayoutKey& key)
 		auto result = handle.createPipelineLayout(layoutci);
 		layout.layout = result;
 		lock.lock();
-		pso_cache.layout_data[key] = layout;;
+		pso_cache.layout_data[key] = layout;
 		return pso_cache.layout_data[key];
 	}
 }
 
 Pipeline* Device::try_get_pipeline(const GraphicsPSOKey& key)
 {
+	ZoneScoped;
 	{
 		std::shared_lock<std::shared_mutex> lock{pso_cache.gfx_lock};
 		if(pso_cache.gfx_data.contains(key)) [[likely]]
@@ -809,6 +851,7 @@ Pipeline* Device::try_get_pipeline(const GraphicsPSOKey& key)
 
 Pipeline* Device::try_get_pipeline(const ComputePSOKey& key)
 {
+	ZoneScoped;
 	{
 		std::shared_lock<std::shared_mutex> lock{pso_cache.comp_lock};
 		if(pso_cache.comp_data.contains(key)) [[likely]]

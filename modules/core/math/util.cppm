@@ -2,7 +2,7 @@ export module lumina.core.math:util;
 
 import std;
 
-namespace lumina
+export namespace lumina
 {
 
 template <std::floating_point T>

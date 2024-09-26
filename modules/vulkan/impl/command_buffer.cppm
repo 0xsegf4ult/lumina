@@ -1,3 +1,7 @@
+module;
+
+#include <cassert>
+
 export module lumina.vulkan:impl_command_buffer;
 
 import :command_buffer;
@@ -15,29 +19,58 @@ import lumina.core;
 namespace lumina::vulkan
 {
 
-void CommandBuffer::pipeline_barrier(const ImageBarrier& bar)
+void CommandBuffer::pipeline_barrier(array_proxy<BufferBarrier> bar)
 {
-	vk::ImageMemoryBarrier2 vb
+	assert(bar.size() <= 8);
+	std::array<vk::BufferMemoryBarrier2, 8> bb;
+	
+	for(auto i = 0ull; i < bar.size(); i++)
 	{
-		.srcStageMask = bar.src_stage,
-		.srcAccessMask = bar.src_access,
-		.dstStageMask = bar.dst_stage,
-		.dstAccessMask = bar.dst_access,
-		.oldLayout = bar.src_layout,
-		.newLayout = bar.dst_layout,
-		.image = bar.image->get_handle(),
-		.subresourceRange = 
-		{
-			is_depth_format(bar.image->get_key().format) ? vk::ImageAspectFlagBits::eDepth : vk::ImageAspectFlagBits::eColor,
-			bar.subresource.level, bar.subresource.levels,
-			bar.subresource.layer, bar.subresource.layers
-		}
-	};
+		bb[i].srcStageMask = bar[i].src_stage;
+		bb[i].srcAccessMask = bar[i].src_access;
+		bb[i].dstStageMask = bar[i].dst_stage;
+		bb[i].dstAccessMask = bar[i].dst_access;
+		bb[i].srcQueueFamilyIndex = device->get_queue_index(bar[i].src_queue);
+		bb[i].dstQueueFamilyIndex = device->get_queue_index(bar[i].dst_queue);
+		bb[i].buffer = bar[i].buffer->handle;
+		bb[i].offset = bar[i].offset;
+		bb[i].size = bar[i].size;
+	}
 
 	cmd.pipelineBarrier2
 	({
-		.imageMemoryBarrierCount = 1u,
-		.pImageMemoryBarriers = &vb
+		.bufferMemoryBarrierCount = static_cast<std::uint32_t>(bar.size()),
+		.pBufferMemoryBarriers = bb.data()
+	});
+}
+
+void CommandBuffer::pipeline_barrier(array_proxy<ImageBarrier> bar)
+{
+	assert(bar.size() <= 8);
+	std::array<vk::ImageMemoryBarrier2, 8> vb;
+	for(auto i = 0ull; i < bar.size(); i++)
+	{
+		vb[i].srcStageMask = bar[i].src_stage;
+		vb[i].srcAccessMask = bar[i].src_access;
+		vb[i].dstStageMask = bar[i].dst_stage;
+		vb[i].dstAccessMask = bar[i].dst_access;
+		vb[i].oldLayout = bar[i].src_layout;
+		vb[i].newLayout = bar[i].dst_layout;
+		vb[i].srcQueueFamilyIndex = device->get_queue_index(bar[i].src_queue);
+		vb[i].dstQueueFamilyIndex = device->get_queue_index(bar[i].dst_queue);
+		vb[i].image = bar[i].image->get_handle();
+		vb[i].subresourceRange = 
+		{
+			is_depth_format(bar[i].image->get_key().format) ? vk::ImageAspectFlagBits::eDepth : vk::ImageAspectFlagBits::eColor,
+			bar[i].subresource.level, bar[i].subresource.levels,
+			bar[i].subresource.layer, bar[i].subresource.layers
+		};
+	}
+
+	cmd.pipelineBarrier2
+	({
+		.imageMemoryBarrierCount = static_cast<std::uint32_t>(bar.size()),
+		.pImageMemoryBarriers = vb.data()
 	});
 }
 
@@ -156,115 +189,191 @@ void CommandBuffer::bind_pipeline(const ComputePSOKey& key)
 
 void CommandBuffer::push_constant(void* value, uint32_t size)
 {
+	assert(value);
+	assert(size);
+	assert(bound_pipe);
 	cmd.pushConstants(bound_pipe->layout, bound_pipe->pconst.stageFlags, 0, size, value);
 }	
 
 void CommandBuffer::bind_descriptor_sets(array_proxy<DescriptorSet> sets)
 {
+	assert(bound_pipe);
+
+	std::array<vk::DescriptorSet, 4> ds;
+	uint32_t count = 0;
+	uint32_t min_set = 1;
+
+	for(const auto& set : sets)
+	{
+		ds[count++] = set.set;
+		min_set = std::min(min_set, set.bindpoint);
+	}
+
+	cmd.bindDescriptorSets(is_compute_pso ? vk::PipelineBindPoint::eCompute : vk::PipelineBindPoint::eGraphics, bound_pipe->layout, min_set, {count, ds.data()}, {});
 }
 
-void CommandBuffer::bind_descriptor_sets(array_proxy<DescriptorSetPush> sets)
+void CommandBuffer::push_descriptor_set(const DescriptorSetPush& set)
 {
-	for(auto& set : sets)
+	assert(bound_pipe);
+	std::array<vk::DescriptorBufferInfo, 16> buffer_info;
+	std::array<vk::DescriptorImageInfo, 16> image_info;
+	std::array<vk::WriteDescriptorSet, 16> ds_writes;
+
+	uint32_t num_bufferinfo = 0;
+	uint32_t num_imageinfo = 0;
+	uint32_t num_writes = 0;
+
+	for(auto& si : set.sampled_images)
 	{
-		std::vector<vk::DescriptorBufferInfo> buffer_info;
-		std::vector<vk::DescriptorImageInfo> image_info;
-		std::vector<vk::WriteDescriptorSet> ds_writes;
-
-		for(auto& si : set.bindings.sampled_images)
+		image_info[num_imageinfo] =
 		{
-			image_info.push_back
-			({
-				.sampler = si.sampler,
-				.imageView = si.view->get_handle(),
-				.imageLayout = si.layout
-			});
+			.sampler = si.sampler,
+			.imageView = si.view->get_handle(),
+			.imageLayout = si.layout
+		};
 
-			ds_writes.push_back
-			({
-				.dstBinding = si.bindpoint,
-				.descriptorCount = 1,
-				.descriptorType = vk::DescriptorType::eCombinedImageSampler,
-				.pImageInfo = &image_info.back()
-			});
-		}
-
-		for(auto& si : set.bindings.storage_images)
+		ds_writes[num_writes++] =
 		{
-			image_info.push_back
-			({
-				.imageView = si.view->get_handle(),
-				.imageLayout = vk::ImageLayout::eGeneral
-			});
+			.dstBinding = si.bindpoint,
+			.descriptorCount = 1,
+			.descriptorType = vk::DescriptorType::eCombinedImageSampler,
+			.pImageInfo = &image_info[num_imageinfo]
+		};
 
-			ds_writes.push_back
-			({
-				.dstBinding = si.bindpoint,
-				.descriptorCount = 1,
-				.descriptorType = vk::DescriptorType::eStorageImage,
-				.pImageInfo = &image_info.back()
-			});
-		}
-
-		for(auto& ubo : set.bindings.uniform_buffers)
-		{
-			buffer_info.push_back
-			({
-				ubo.buffer->handle,
-				ubo.offset,
-				ubo.range
-			});
-			
-			ds_writes.push_back
-			({
-				.dstBinding = ubo.bindpoint,
-				.descriptorCount = 1,
-				.descriptorType = vk::DescriptorType::eUniformBuffer,
-				.pBufferInfo = &buffer_info.back()
-			});
-		}
-
-		for(auto& ssbo : set.bindings.storage_buffers)
-		{
-			buffer_info.push_back
-			({
-				ssbo.buffer->handle,
-				ssbo.offset,
-				ssbo.range
-			});
-
-			ds_writes.push_back
-			({
-				.dstBinding = ssbo.bindpoint,
-				.descriptorCount = 1,
-				.descriptorType = vk::DescriptorType::eStorageBuffer,
-				.pBufferInfo = &buffer_info.back()
-			});
-		}
-
-		cmd.pushDescriptorSetKHR(is_compute_pso ? vk::PipelineBindPoint::eCompute : vk::PipelineBindPoint::eGraphics, bound_pipe->layout, set.bindpoint, {static_cast<uint32_t>(ds_writes.size()), ds_writes.data()});	
+		num_imageinfo++;
 	}
+
+	for(auto& si : set.storage_images)
+	{
+		image_info[num_imageinfo] =
+		{
+			.imageView = si.view->get_handle(),
+			.imageLayout = vk::ImageLayout::eGeneral
+		};
+
+		ds_writes[num_writes++] = 
+		{
+			.dstBinding = si.bindpoint,
+			.descriptorCount = 1,
+			.descriptorType = vk::DescriptorType::eStorageImage,
+			.pImageInfo = &image_info[num_imageinfo]
+		};
+
+		num_imageinfo++;
+	}
+
+	for(auto& ubo : set.uniform_buffers)
+	{
+		buffer_info[num_bufferinfo] = 
+		{
+			ubo.buffer->handle,
+			ubo.offset,
+			ubo.range
+		};
+		
+		ds_writes[num_writes++] = 
+		{
+			.dstBinding = ubo.bindpoint,
+			.descriptorCount = 1,
+			.descriptorType = vk::DescriptorType::eUniformBuffer,
+			.pBufferInfo = &buffer_info[num_bufferinfo]
+		};
+
+		num_bufferinfo++;
+	}
+
+	for(auto& ssbo : set.storage_buffers)
+	{
+		buffer_info[num_bufferinfo] = 
+		{
+			ssbo.buffer->handle,
+			ssbo.offset,
+			ssbo.range
+		};
+
+		ds_writes[num_writes++] = 
+		{
+			.dstBinding = ssbo.bindpoint,
+			.descriptorCount = 1,
+			.descriptorType = vk::DescriptorType::eStorageBuffer,
+			.pBufferInfo = &buffer_info[num_bufferinfo]
+		};
+
+		num_bufferinfo++;
+	}
+
+	cmd.pushDescriptorSetKHR(is_compute_pso ? vk::PipelineBindPoint::eCompute : vk::PipelineBindPoint::eGraphics, bound_pipe->layout, 0, {num_writes, ds_writes.data()});
 }
 
 void CommandBuffer::bind_vertex_buffers(array_proxy<Buffer*> buffers)
 {
-	//FIXME: multiple buffers
-	cmd.bindVertexBuffers(0, {buffers.data()[0]->handle}, {0});
+	assert(!is_compute_pso);
+	assert(bound_pipe);
+	
+	std::array<vk::Buffer, 2> handles;
+	std::array<vk::DeviceSize, 2> offsets{0ull, 0ull};
+	uint32_t count = 0;
+
+	for(auto buffer : buffers)
+	{
+		handles[count++] = buffer->handle;
+	}
+
+	cmd.bindVertexBuffers(0, {count, handles.data()}, {count, offsets.data()});
 }
 
 void CommandBuffer::bind_index_buffer(Buffer* buffer, vk::IndexType type)
 {
+	assert(buffer);
+	assert(!is_compute_pso);
+	assert(bound_pipe);
 	cmd.bindIndexBuffer(buffer->handle, 0, type);
 }
 
 void CommandBuffer::draw(uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance)
 {
+	assert(!is_compute_pso);
+	assert(bound_pipe);
 	cmd.draw(vertex_count, instance_count, first_vertex, first_instance);
 }
 
 void CommandBuffer::draw_indexed(uint32_t index_count, uint32_t instance_count, uint32_t first_index, int32_t vertex_offset, uint32_t first_instance)
 {
+	assert(!is_compute_pso);
+	assert(bound_pipe);
 	cmd.drawIndexed(index_count, instance_count, first_index, vertex_offset, first_instance);
+}
+
+void CommandBuffer::dispatch(uint32_t group_size_x, uint32_t group_size_y, uint32_t group_size_z)
+{
+	assert(is_compute_pso);
+	assert(bound_pipe);
+	cmd.dispatch(group_size_x, group_size_y, group_size_z);
+}
+
+void CommandBuffer::dispatch(uvec3 group_size)
+{
+	assert(is_compute_pso);
+	assert(bound_pipe);
+	cmd.dispatch(group_size.x, group_size.y, group_size.z);
+}
+
+void CommandBuffer::add_wait_semaphore(WaitSemaphoreInfo&& ws)
+{
+	wsem = std::move(ws);
+}
+
+WaitSemaphoreInfo* CommandBuffer::get_wait_semaphore()
+{
+	if(wsem.wait_queue == Queue::Invalid)
+		return nullptr;
+
+	return &wsem;
+}
+
+void CommandBuffer::debug_name(std::string_view name)
+{
+	device->set_object_name(cmd, name);
 }
 
 }
