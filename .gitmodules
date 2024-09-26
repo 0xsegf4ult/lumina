@@ -14,3 +14,6 @@
 [submodule "external/ut"]
 	path = external/ut
 	url = https://github.com/boost-ext/ut
+[submodule "external/tracy"]
+	path = external/tracy
+	url = https://github.com/wolfpld/tracy

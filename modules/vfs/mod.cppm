@@ -4,6 +4,7 @@ module;
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <unistd.h>
 #endif
 
@@ -54,8 +55,9 @@ export struct File
 struct vfs_context_t
 {
 	std::unordered_map<Handle<File>, File> open_files;
+	std::shared_mutex lock;
 };
-static vfs_context_t* vfs_context = nullptr; 
+vfs_context_t* vfs_context = nullptr; 
 
 }
 
@@ -66,6 +68,11 @@ export namespace lumina::vfs
 void init()
 {
 	vfs_context = new vfs_context_t();
+
+	struct rlimit lim;
+	getrlimit(RLIMIT_NOFILE, &lim);
+	lim.rlim_cur = 65536;
+	setrlimit(RLIMIT_NOFILE, &lim);
 }
 
 void shutdown()
@@ -77,8 +84,13 @@ using open_return_type = std::expected<Handle<File>, FileOpenError>;
 open_return_type open_unscoped(const path& p, access_readonly_t)
 {
 	Handle<File> fh{fnv::hash(p.c_str())};
+	{
+	std::scoped_lock<std::shared_mutex> r_lock{vfs_context->lock};
+
 	if(vfs_context->open_files.contains(fh))
 		return fh;
+
+	}
 
 	if(!std::filesystem::exists(p))
 		return std::unexpected(FileOpenError::NoEntry);
@@ -90,29 +102,45 @@ open_return_type open_unscoped(const path& p, access_readonly_t)
 	#if defined LUMINA_PLATFORM_POSIX
 	f.fd = ::open(p.c_str(), O_RDONLY);
 	if(f.fd < 0)
+	{
+		std::perror("failed to open file");
 		return std::unexpected(FileOpenError::Unknown);
-
+	}
 	struct stat file_info;
 	if(fstat(f.fd, &file_info) < 0)
+	{
+		std::perror("failed to stat file");
 		return std::unexpected(FileOpenError::Unknown);
-	f.size = file_info.st_size;
+	}
+	f.size = static_cast<std::size_t>(file_info.st_size);
 
 	f.mapped = mmap(nullptr, f.size, PROT_READ, MAP_PRIVATE, f.fd, 0);
 	if(f.mapped == MAP_FAILED)
+	{
+		std::perror("failed to mmap file");
 		return std::unexpected(FileOpenError::Unknown);
-
+	}
 	#else
 	static_assert(false, "not implemented for current platform");
 	#endif
 	
 	f.rw = false;
+	
+	{
+	std::unique_lock<std::shared_mutex> w_lock{vfs_context->lock};
 	vfs_context->open_files[fh] = f;
+	}
+
 	return fh;
 }
 
 open_return_type open_unscoped(const path& p, access_rw_t)
 {
 	Handle<File> fh{fnv::hash(p.c_str())};
+	
+	{
+	std::scoped_lock<std::shared_mutex> r_lock{vfs_context->lock};
+	
 	if(vfs_context->open_files.contains(fh))
 	{
 		if(!vfs_context->open_files[fh].rw) [[unlikely]]
@@ -121,6 +149,8 @@ open_return_type open_unscoped(const path& p, access_rw_t)
 			std::unreachable();
 		}
 		return fh;
+	}
+
 	}
 
 	if(std::filesystem::exists(p))
@@ -148,12 +178,19 @@ open_return_type open_unscoped(const path& p, access_rw_t)
 	#endif
 
 	f.rw = true;
+	
+	{
+	std::unique_lock<std::shared_mutex> w_lock{vfs_context->lock};
 	vfs_context->open_files[fh] = f;
+	}
+
 	return fh;
 }
 
 void close(Handle<File> h)
 {
+	{
+	std::scoped_lock<std::shared_mutex> r_lock{vfs_context->lock};
 	const File& f = vfs_context->open_files[h];
 	#if defined LUMINA_PLATFORM_POSIX
 	munmap(f.mapped, f.size);
@@ -161,6 +198,9 @@ void close(Handle<File> h)
 	#else
 	static_assert(false, "not implemented for current platform");
 	#endif
+	}
+
+	std::unique_lock<std::shared_mutex> w_lock{vfs_context->lock};
 	vfs_context->open_files.erase(h);
 }
 
@@ -186,12 +226,15 @@ ScopedFileHandle open(const path& p, access_rw_t rw_tag)
 template <typename T>
 const T* map(Handle<File> h, access_readonly_t)
 {
+	std::scoped_lock<std::shared_mutex> r_lock{vfs_context->lock};
 	return std::bit_cast<const T*>(vfs_context->open_files[h].mapped);
 }
 
 template <typename T>
 T* map(Handle<File> h, access_rw_t)
 {
+	std::scoped_lock<std::shared_mutex> r_lock{vfs_context->lock};
+
 	if(!vfs_context->open_files[h].rw)
 	{
 		log::critical("Tried to map readonly file as rw");
