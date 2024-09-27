@@ -33,9 +33,11 @@ target_sources(lumina_core PUBLIC FILE_SET CXX_MODULES FILES
 	array_proxy.cppm
 	hash.cppm
 	handle.cppm
+	iterable_proxy.cppm
 	job.cppm
 	log.cppm
 	object_pool.cppm
 	refcounted.cppm
 	type_hash.cppm
+	type_traits.cppm
 	typesafe_flags.cppm)

@@ -235,14 +235,14 @@ public:
 		ui_hooks.push_back(std::move(hook));
 	}
 
-	void render(vulkan::Image* image, vulkan::CommandBuffer* cmd, double dt)
+	void render(vulkan::CommandBuffer& cb, double dt)
 	{
 		ImGuiIO& io = ImGui::GetIO();
 
 		io.DeltaTime = dt > 0.0 ? static_cast<float>(dt) : (1.0f / 60.0f);
 
 		auto [w, h] = window->get_extent();	
-		auto [fw, fh] = image->get_extent2D();
+		auto [fw, fh] = window->get_extent();
 
 		io.DisplaySize.x = static_cast<float>(w);
 		io.DisplaySize.y = static_cast<float>(h);
@@ -257,12 +257,6 @@ public:
 		ImGui::Render();
 		auto draw_data = ImGui::GetDrawData();
 
-		vulkan::CommandBuffer cb_owner;
-		if(!cmd)
-			cb_owner = device->request_command_buffer();
-
-		vulkan::CommandBuffer& cb = (cmd != nullptr) ? *cmd : cb_owner;
-		
 		ImDrawVert* vmem = static_cast<ImDrawVert*>(perframe_data[cb.ctx_index].vertex->mapped);
 		ImDrawIdx* imem = static_cast<ImDrawIdx*>(perframe_data[cb.ctx_index].index->mapped);
 		for(int i = 0; i < draw_data->CmdListsCount; i++)
@@ -277,19 +271,12 @@ public:
 		}
 
 		{
-			cb.begin_render_pass
-			({
-				.render_area = {{0, 0}, image->get_extent2D()},
-				.attachments = {{image}},
-				.auto_scissor = false
-			});
-
 			cb.bind_pipeline
 			({
 				.vert_desc = {{vk::Format::eR32G32Sfloat, vk::Format::eR32G32Sfloat, vk::Format::eR8G8B8A8Unorm}},
 				.depth_mode = vulkan::DepthMode::Disabled,
 				.blend_modes = {vulkan::BlendMode::AlphaBlend},
-				.att_formats = {{image->get_key().format}},
+				.att_formats = {{vk::Format::eB8G8R8A8Srgb}},
 				.shaders = {"imgui.vert", "imgui.frag"}
 			});
 
@@ -356,13 +343,8 @@ public:
 				idx_offset += static_cast<uint32_t>(cmd_list->IdxBuffer.Size);
 				vtx_offset += static_cast<int32_t>(cmd_list->VtxBuffer.Size);
 			}
-
-			cb.end_render_pass();
 		}
 		
-		if(!cmd)
-			device->submit(cb);
-
 		ImGui::EndFrame();
 	}	
 private:
