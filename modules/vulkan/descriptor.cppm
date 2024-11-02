@@ -47,7 +47,7 @@ export struct CombinedImageSamplerBinding
 	uint32_t bindpoint;
 	ImageView* view;
 	vk::Sampler sampler;
-	vk::ImageLayout layout = vk::ImageLayout::eReadOnlyOptimal;
+	vk::ImageLayout layout = vk::ImageLayout::eShaderReadOnlyOptimal;
 };
 
 export struct BufferBinding

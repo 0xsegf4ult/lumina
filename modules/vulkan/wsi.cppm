@@ -126,9 +126,7 @@ public:
 		current_present_mode = mode;
 		if(!device->get_features().has_swapchain_maintenance_ext)
 		{
-			device->wait_idle();
-			cleanup_swapchain();
-			init_swapchain();
+			needs_swapchain_rebuild = true;
 		}
 
 		return true;
@@ -138,11 +136,29 @@ public:
 	{
 		device->advance_timeline(Queue::Graphics);
 
+		do
 		{
-		vk::Semaphore acquire_sem = device->wsi_signal_acquire();
-		vk::ResultValue<uint32_t> index = device->get_handle().acquireNextImageKHR(swapchain, 1000000, acquire_sem, nullptr);
-		cur_index = index.value;
-		}
+			vk::Semaphore acquire_sem = device->wsi_signal_acquire();
+			try
+			{
+				vk::ResultValue<uint32_t> index = device->get_handle().acquireNextImageKHR(swapchain, 1000000, acquire_sem, nullptr);
+				cur_index = index.value;
+				needs_swapchain_rebuild = false;
+			}
+			catch(vk::OutOfDateKHRError ex)
+			{
+				window->await_wm_resize();
+				needs_swapchain_rebuild = true;
+			}
+
+			if(needs_swapchain_rebuild)
+			{
+				device->wait_idle();
+				cleanup_swapchain();
+				init_swapchain();
+			}
+		
+		} while(needs_swapchain_rebuild);
 
 		return &textures[cur_index];
 	}
@@ -174,11 +190,15 @@ public:
 		catch(vk::OutOfDateKHRError ex)
 		{
 			window->await_wm_resize();
+			needs_swapchain_rebuild = true;
+		}
 
+		if(needs_swapchain_rebuild)
+		{
 			device->wait_idle();
-
 			cleanup_swapchain();
 			init_swapchain();
+			needs_swapchain_rebuild = false;
 		}
 	}
 private:
@@ -252,6 +272,8 @@ private:
 
 	uint32_t cur_index = 0;
 	std::vector<SwapchainTexture> textures;
+
+	bool needs_swapchain_rebuild = false;
 };
 
 }

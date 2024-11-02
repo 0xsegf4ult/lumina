@@ -270,6 +270,7 @@ public:
 			imem += cmd_list->IdxBuffer.Size;
 		}
 
+		device->start_perf_event("ImGUI pass", cb);
 		{
 			cb.bind_pipeline
 			({
@@ -344,6 +345,7 @@ public:
 				vtx_offset += static_cast<int32_t>(cmd_list->VtxBuffer.Size);
 			}
 		}
+		device->end_perf_event(cb);
 		
 		ImGui::EndFrame();
 	}	

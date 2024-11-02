@@ -25,6 +25,30 @@ export struct PrimitiveState
 	uint32_t patch_ctrl = 0;
 };
 
+export constexpr PrimitiveState tri_fill_nocull
+{
+	vk::PolygonMode::eFill,
+	vk::CullModeFlagBits::eNone,
+	vk::PrimitiveTopology::eTriangleList,
+	0
+};
+
+export constexpr PrimitiveState tri_fill_backcull
+{
+	vk::PolygonMode::eFill,
+	vk::CullModeFlagBits::eBack,
+	vk::PrimitiveTopology::eTriangleList,
+	0
+};
+
+export constexpr PrimitiveState tri_wireframe
+{
+	vk::PolygonMode::eLine,
+	vk::CullModeFlagBits::eNone,
+	vk::PrimitiveTopology::eTriangleList,
+	0
+};
+
 export using VertexDescription = std::array<std::array<vk::Format, max_vertex_attributes>, max_vertex_bindings>;
 
 constexpr uint32_t vk_format_size(vk::Format fmt)
@@ -317,12 +341,12 @@ export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk:
 
 	vk::PipelineRasterizationStateCreateInfo rasterization
 	{
-		.depthClampEnable = false,
+		.depthClampEnable = (key.depth_mode == DepthMode::Shadowcast) ? true : false,
 		.rasterizerDiscardEnable = false,
 		.polygonMode = key.primitive.polymode,
 		.cullMode = key.primitive.cullmode,
 		.frontFace = vk::FrontFace::eCounterClockwise,
-		.depthBiasEnable = (key.depth_mode == DepthMode::Shadowcast) ? true : false,
+		.depthBiasEnable = false,
 		.lineWidth = 1.0f
 	};
 
@@ -359,9 +383,6 @@ export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk:
 	};
 	uint32_t num_dstates = 2;
 
-	if(key.depth_mode == DepthMode::Shadowcast)
-		dsenables[num_dstates++] = vk::DynamicState::eDepthBias;
-		
 	vk::PipelineDynamicStateCreateInfo dynamic_state
 	{
 		.dynamicStateCount = num_dstates,

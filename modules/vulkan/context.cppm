@@ -212,7 +212,7 @@ public:
 		}
 
 		// FIXME: make configurable
-		vk::StructureChain<vk::DeviceCreateInfo, vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan12Features, vk::PhysicalDeviceVulkan13Features> chain =
+		vk::StructureChain<vk::DeviceCreateInfo, vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan12Features, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceRobustness2FeaturesEXT> chain =
 		{
 			{
 				.queueCreateInfoCount = static_cast<uint32_t>(queue_ci.size()),
@@ -230,7 +230,7 @@ public:
 					.multiDrawIndirect = true,
 					.drawIndirectFirstInstance = true,
 					.fillModeNonSolid = true,
-					//FIXME: llvmpipe not supported .depthBounds = true,
+					.depthClamp = true,
 					.samplerAnisotropy = true,
 					.textureCompressionBC = true
 				}
@@ -241,13 +241,18 @@ public:
 				.descriptorBindingSampledImageUpdateAfterBind = true,
 				.descriptorBindingPartiallyBound = true,
 				.descriptorBindingVariableDescriptorCount = true,
+				.shaderSampledImageArrayNonUniformIndexing = true,
 				.runtimeDescriptorArray = true,
 				.samplerFilterMinmax = true,
-				.timelineSemaphore = true
+				.timelineSemaphore = true,
+				.hostQueryReset = true
 			},
 			{
 				.synchronization2 = true,
 				.dynamicRendering = true,
+			},
+			{
+				.nullDescriptor = true
 			}
 		};
 

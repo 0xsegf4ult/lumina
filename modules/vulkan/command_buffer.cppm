@@ -139,6 +139,7 @@ struct CommandBuffer
 		wsi_sync |= stages;
 	}
 
+	void memory_barrier(array_proxy<MemoryBarrier> b);
 	void pipeline_barrier(array_proxy<ImageBarrier> b);
 	void pipeline_barrier(array_proxy<BufferBarrier> b);
 

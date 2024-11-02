@@ -15,8 +15,10 @@ export namespace ImGui
 	using ImGui::GetDrawData;
 	using ImGui::EndFrame;
 	using ImGui::DestroyContext;
-	
+
+	using ImGui::IsItemEdited;	
 	using ImGui::IsItemHovered;
+	using ImGui::IsItemDeactivatedAfterEdit;
 	using ImGui::IsMouseDown;
 	using ImGui::GetWindowWidth;
 	using ImGui::GetWindowHeight;
@@ -25,6 +27,9 @@ export namespace ImGui
 	using ImGui::SetNextWindowPos;
 	using ImGui::GetMainViewport;
 	using ImGui::SetNextWindowViewport;
+	using ImGui::GetWindowPos;
+	using ImGui::GetCursorPosX;
+	using ImGui::GetCursorPosY;
 
 	using ImGui::Begin;
 	using ImGui::End;
@@ -36,6 +41,7 @@ export namespace ImGui
 	using ImGui::EndMenuBar;
 	using ImGui::OpenPopup;
 	using ImGui::BeginPopupModal;
+	using ImGui::BeginPopupContextItem;
 	using ImGui::CloseCurrentPopup;
 	using ImGui::EndPopup;
 	using ImGui::TreeNode;
@@ -52,19 +58,32 @@ export namespace ImGui
 	using ImGui::DockBuilderFinish;
 	using ImGui::PushID;
 	using ImGui::PopID;
+	using ImGui::BeginDisabled;
+	using ImGui::EndDisabled;
 
 	using ImGui::Button;
+	using ImGui::InputInt;
 	using ImGui::DragFloat;
 	using ImGui::DragFloat2;
 	using ImGui::DragFloat3;
 	using ImGui::DragFloat4;
+	using ImGui::DragScalar;
+	using ImGui::SliderScalar;
 	using ImGui::SliderFloat;
 	using ImGui::SliderFloat2;
 	using ImGui::SliderFloat3;
 	using ImGui::SliderFloat4;
 	using ImGui::SliderInt;
+	using ImGui::ColorEdit3;
+	using ImGui::ColorEdit4;
+	using ImGui::Selectable;
 	using ImGui::InputText;
 	using ImGui::Image;
+	using ImGui::Checkbox;
+	using ImGui::Combo;
+	using ImGui::Separator;
+	using ImGui::SeparatorText;
+	using ImGui::Text;
 }
 
 export using ::ImGuiKey;
@@ -99,6 +118,25 @@ export using ::ImGuiStyleVar_WindowPadding;
 export using ::ImGuiMouseButton_Left;
 export using ::ImGuiMouseButton_Right;
 export using ::ImGuiTreeNodeFlags;
+export using ::ImGuiTreeNodeFlags_DefaultOpen;
 export using ::ImGuiTreeNodeFlags_OpenOnArrow;
 export using ::ImGuiTreeNodeFlags_Leaf;
 export using ::ImGuiTreeNodeFlags_Selected;
+export using ::ImGuiColorEditFlags;
+export using ::ImGuiColorEditFlags_Float;
+export using ::ImGuiColorEditFlags_HDR;
+export using ::ImGuiSliderFlags;
+export using ::ImGuiSliderFlags_AlwaysClamp;
+export using ::ImGuiSliderFlags_NoInput;
+export using ::ImGuiSliderFlags_Logarithmic;
+export using ::ImGuiDataType;
+export using ::ImGuiDataType_S8;
+export using ::ImGuiDataType_U8;
+export using ::ImGuiDataType_S16;
+export using ::ImGuiDataType_U16;
+export using ::ImGuiDataType_S32;
+export using ::ImGuiDataType_U32;
+export using ::ImGuiDataType_S64;
+export using ::ImGuiDataType_U64;
+export using ::ImGuiDataType_Float;
+export using ::ImGuiDataType_Double;

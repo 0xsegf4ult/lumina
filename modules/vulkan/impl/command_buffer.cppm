@@ -19,6 +19,26 @@ import lumina.core;
 namespace lumina::vulkan
 {
 
+void CommandBuffer::memory_barrier(array_proxy<MemoryBarrier> bar)
+{
+	assert(bar.size() <= 8);
+	std::array<vk::MemoryBarrier2, 8> mb;
+
+	for(auto i = 0ull; i < bar.size(); i++)
+	{
+		mb[i].srcStageMask = bar[i].src_stage;
+		mb[i].srcAccessMask = bar[i].src_access;
+		mb[i].dstStageMask = bar[i].dst_stage;
+		mb[i].dstAccessMask = bar[i].dst_access;
+	}
+
+	cmd.pipelineBarrier2
+	({
+		.memoryBarrierCount = static_cast<std::uint32_t>(bar.size()),
+		.pMemoryBarriers = mb.data()
+	});
+}
+
 void CommandBuffer::pipeline_barrier(array_proxy<BufferBarrier> bar)
 {
 	assert(bar.size() <= 8);
@@ -174,6 +194,7 @@ void CommandBuffer::bind_pipeline(const GraphicsPSOKey& key)
 	if(!bound_pipe)
 		return;
 
+	is_compute_pso = false;
 	cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, bound_pipe->pipeline);	
 }
 

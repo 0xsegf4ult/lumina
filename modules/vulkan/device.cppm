@@ -52,7 +52,8 @@ enum class SamplerPrefab
 {
 	TextureAnisotropic,
 	Texture,
-	TextureClamp
+	TextureClamp,
+	Shadowmap
 };
 
 struct DeviceFeatures
@@ -64,6 +65,12 @@ struct ReleaseRequest
 {
 	std::variant<vk::Buffer, vk::Image, vk::ImageView, vk::DeviceMemory> resource;
 	uint64_t timeline;
+};
+
+struct PerfEvent
+{
+	std::string_view name;
+	double time;
 };
 
 class Device
@@ -85,6 +92,7 @@ public:
 	vk::Queue get_queue(Queue queue) const;
 	uint32_t get_queue_index(Queue queue) const;	
 	vk::Sampler get_prefab_sampler(SamplerPrefab sampler) const;
+	uint64_t current_frame_index(Queue queue = Queue::Graphics) const;	
 
 	constexpr std::string_view get_name() const
 	{
@@ -134,6 +142,15 @@ public:
 
 	void release_resource(Queue queue, ReleaseRequest&& req);
 	void destroy_resources(Queue queue);
+
+	void start_perf_event(std::string_view name, CommandBuffer& cmd);
+	void end_perf_event(CommandBuffer& cmd);
+
+	std::span<PerfEvent> get_perf_events()
+	{
+		auto fidx = pe_read;
+		return {perf_events[fidx].events.data(), perf_events[fidx].evt_head};
+	}
 private:
 	vk::Device handle;
 	vk::Instance instance;
@@ -171,6 +188,18 @@ private:
 	};
 	std::array<QueueData, num_queues> queues;
 
+
+	struct PerfEvents
+	{
+		std::array<PerfEvent, 64> events;
+		uint32_t evt_head = 0;
+		vk::QueryPool gfx_qp;
+	};
+
+	uint32_t pe_read = 0;
+	uint32_t pe_write = 1;
+	std::array<PerfEvents, num_ctx> perf_events;
+
 	struct WSISync
 	{
 		vk::Semaphore acquire;
@@ -183,7 +212,7 @@ private:
 	vk::DeviceSize vmem_usage{0};
 	vk::DeviceSize vmem_budget{0};
 
-	std::array<vk::Sampler, 3> sampler_prefabs;
+	std::array<vk::Sampler, 4> sampler_prefabs;
 
 	struct ShaderCache
 	{
