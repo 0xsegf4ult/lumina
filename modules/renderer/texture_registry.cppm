@@ -231,7 +231,7 @@ public:
 		lock.unlock();
 
 		log::debug("texture_registry: start async cb");
-		auto tcb = device->request_command_buffer(vulkan::Queue::Transfer);
+		auto tcb = device->request_command_buffer(vulkan::Queue::Transfer, "texture_registry_copy");
 		{
 			for(uint32_t j = 0; j < load_data.size(); j++)
 			{
@@ -274,8 +274,9 @@ public:
 		}
 		auto ttv = device->submit(tcb, vulkan::submit_signal_timeline);
 
-		log::debug("texture_registry: wait for async cb");
-		auto gcb = device->request_command_buffer(vulkan::Queue::Graphics);
+		log::debug("texture_registry: wait for async cb {} entries", load_data.size());
+		auto gcb = device->request_command_buffer(vulkan::Queue::Graphics, "gfx_tex_acb_wait");
+		gcb.debug_name("gfx_tex_acb_wait");
 		{
 			gcb.add_wait_semaphore({vulkan::Queue::Transfer, ttv, vk::PipelineStageFlagBits2::eFragmentShader});
 			for(uint32_t j = 0; j < load_data.size(); j++)
@@ -304,7 +305,10 @@ public:
 				}});
 			}
 		}
+		log::debug("texture_registry: pre gfx queue submit");
+		assert(gcb.dbg_state == vulkan::CommandBuffer::DebugState::Recording);
 		auto gtv = device->submit(gcb, vulkan::submit_signal_timeline);
+		log::debug("texture_registry: post gfx queue submit");
 		device->wait_timeline(vulkan::Queue::Graphics, gtv);
 		log::debug("texture_registry: transfer complete, uploaded {} textures", i);
 
