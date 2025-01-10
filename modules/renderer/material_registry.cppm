@@ -172,9 +172,8 @@ public:
 	void upload_materials()
 	{
 		ZoneScoped;
-		std::vector<vulkan::BufferBarrier> mem_barrier;
-		mem_barrier.reserve(template_data.size());
-		auto cb = device->request_command_buffer();
+
+		auto cb = device->request_command_buffer(vulkan::Queue::Graphics, "material_registry_copy");
 		{
 			for(auto& [type, data] : template_data)
 			{
@@ -190,19 +189,18 @@ public:
 				region.dstOffset = data.stride * data.gpu_size;
 				cb.vk_object().copyBuffer(data.cpu_material_data->handle, data.gpu_material_data->handle, 1, &region);
 
-				mem_barrier.push_back
-				({
-					.src_stage = vk::PipelineStageFlagBits2::eTransfer,
-					.src_access = vk::AccessFlagBits2::eTransferWrite,
-					.dst_stage = vk::PipelineStageFlagBits2::eFragmentShader,
-					.dst_access = vk::AccessFlagBits2::eShaderRead,
-					.buffer = data.gpu_material_data.get()
-				});
-
 				data.gpu_size = data.size;
 			}
 
-			cb.pipeline_barrier(mem_barrier);
+			cb.memory_barrier
+			({
+			 	{
+				.src_stage = vk::PipelineStageFlagBits2::eTransfer,
+				.src_access = vk::AccessFlagBits2::eTransferWrite,
+				.dst_stage = vk::PipelineStageFlagBits2::eFragmentShader,
+				.dst_access = vk::AccessFlagBits2::eShaderRead,
+				}
+			});
 		}
 		device->submit(cb);
 	}
