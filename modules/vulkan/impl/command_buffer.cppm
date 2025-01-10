@@ -21,6 +21,7 @@ namespace lumina::vulkan
 
 void CommandBuffer::memory_barrier(array_proxy<MemoryBarrier> bar)
 {
+	assert(bar.size() > 0);
 	assert(bar.size() <= 8);
 	std::array<vk::MemoryBarrier2, 8> mb;
 
@@ -37,15 +38,20 @@ void CommandBuffer::memory_barrier(array_proxy<MemoryBarrier> bar)
 		.memoryBarrierCount = static_cast<std::uint32_t>(bar.size()),
 		.pMemoryBarriers = mb.data()
 	});
+
+	dbg_state = DebugState::Recording;
 }
 
 void CommandBuffer::pipeline_barrier(array_proxy<BufferBarrier> bar)
 {
+	assert(bar.size() > 0);
 	assert(bar.size() <= 8);
 	std::array<vk::BufferMemoryBarrier2, 8> bb;
 	
 	for(auto i = 0ull; i < bar.size(); i++)
 	{
+		assert(bar[i].buffer);
+
 		bb[i].srcStageMask = bar[i].src_stage;
 		bb[i].srcAccessMask = bar[i].src_access;
 		bb[i].dstStageMask = bar[i].dst_stage;
@@ -62,14 +68,18 @@ void CommandBuffer::pipeline_barrier(array_proxy<BufferBarrier> bar)
 		.bufferMemoryBarrierCount = static_cast<std::uint32_t>(bar.size()),
 		.pBufferMemoryBarriers = bb.data()
 	});
+	dbg_state = DebugState::Recording;
 }
 
 void CommandBuffer::pipeline_barrier(array_proxy<ImageBarrier> bar)
 {
+	assert(bar.size() > 0);
 	assert(bar.size() <= 8);
 	std::array<vk::ImageMemoryBarrier2, 8> vb;
 	for(auto i = 0ull; i < bar.size(); i++)
 	{
+		assert(bar[i].image);
+
 		vb[i].srcStageMask = bar[i].src_stage;
 		vb[i].srcAccessMask = bar[i].src_access;
 		vb[i].dstStageMask = bar[i].dst_stage;
@@ -92,6 +102,7 @@ void CommandBuffer::pipeline_barrier(array_proxy<ImageBarrier> bar)
 		.imageMemoryBarrierCount = static_cast<std::uint32_t>(bar.size()),
 		.pImageMemoryBarriers = vb.data()
 	});
+	dbg_state = DebugState::Recording;
 }
 
 void CommandBuffer::begin_render_pass(const RenderPassDesc& rp)
@@ -171,21 +182,25 @@ void CommandBuffer::begin_render_pass(const RenderPassDesc& rp)
 			0.0f, 1.0f
 		});
 	}
+	dbg_state = DebugState::Recording;
 }
 
 void CommandBuffer::set_scissor(uint32_t offset, vk::Rect2D scissor)
 {
 	cmd.setScissor(offset, 1, &scissor);
+	dbg_state = DebugState::Recording;
 }
 
 void CommandBuffer::set_viewport(uint32_t offset, vk::Viewport vp)
 {
 	cmd.setViewport(offset, 1, &vp);
+	dbg_state = DebugState::Recording;
 }
 
 void CommandBuffer::end_render_pass()
 {
 	cmd.endRendering();
+	dbg_state = DebugState::Recording;
 }
 
 void CommandBuffer::bind_pipeline(const GraphicsPSOKey& key)
@@ -196,6 +211,7 @@ void CommandBuffer::bind_pipeline(const GraphicsPSOKey& key)
 
 	is_compute_pso = false;
 	cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, bound_pipe->pipeline);	
+	dbg_state = DebugState::Recording;
 }
 
 void CommandBuffer::bind_pipeline(const ComputePSOKey& key)
@@ -206,6 +222,7 @@ void CommandBuffer::bind_pipeline(const ComputePSOKey& key)
 
 	is_compute_pso = true;
 	cmd.bindPipeline(vk::PipelineBindPoint::eCompute, bound_pipe->pipeline);
+	dbg_state = DebugState::Recording;
 }
 
 void CommandBuffer::push_constant(void* value, uint32_t size)
@@ -214,6 +231,7 @@ void CommandBuffer::push_constant(void* value, uint32_t size)
 	assert(size);
 	assert(bound_pipe);
 	cmd.pushConstants(bound_pipe->layout, bound_pipe->pconst.stageFlags, 0, size, value);
+	dbg_state = DebugState::Recording;
 }	
 
 void CommandBuffer::bind_descriptor_sets(array_proxy<DescriptorSet> sets)
@@ -231,6 +249,7 @@ void CommandBuffer::bind_descriptor_sets(array_proxy<DescriptorSet> sets)
 	}
 
 	cmd.bindDescriptorSets(is_compute_pso ? vk::PipelineBindPoint::eCompute : vk::PipelineBindPoint::eGraphics, bound_pipe->layout, min_set, {count, ds.data()}, {});
+	dbg_state = DebugState::Recording;
 }
 
 void CommandBuffer::push_descriptor_set(const DescriptorSetPush& set)
@@ -324,6 +343,7 @@ void CommandBuffer::push_descriptor_set(const DescriptorSetPush& set)
 	}
 
 	cmd.pushDescriptorSetKHR(is_compute_pso ? vk::PipelineBindPoint::eCompute : vk::PipelineBindPoint::eGraphics, bound_pipe->layout, 0, {num_writes, ds_writes.data()});
+	dbg_state = DebugState::Recording;
 }
 
 void CommandBuffer::bind_vertex_buffers(array_proxy<Buffer*> buffers)
@@ -341,6 +361,7 @@ void CommandBuffer::bind_vertex_buffers(array_proxy<Buffer*> buffers)
 	}
 
 	cmd.bindVertexBuffers(0, {count, handles.data()}, {count, offsets.data()});
+	dbg_state = DebugState::Recording;
 }
 
 void CommandBuffer::bind_index_buffer(Buffer* buffer, vk::IndexType type)
@@ -349,6 +370,7 @@ void CommandBuffer::bind_index_buffer(Buffer* buffer, vk::IndexType type)
 	assert(!is_compute_pso);
 	assert(bound_pipe);
 	cmd.bindIndexBuffer(buffer->handle, 0, type);
+	dbg_state = DebugState::Recording;
 }
 
 void CommandBuffer::draw(uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance)
@@ -356,6 +378,7 @@ void CommandBuffer::draw(uint32_t vertex_count, uint32_t instance_count, uint32_
 	assert(!is_compute_pso);
 	assert(bound_pipe);
 	cmd.draw(vertex_count, instance_count, first_vertex, first_instance);
+	dbg_state = DebugState::Recording;
 }
 
 void CommandBuffer::draw_indexed(uint32_t index_count, uint32_t instance_count, uint32_t first_index, int32_t vertex_offset, uint32_t first_instance)
@@ -363,6 +386,7 @@ void CommandBuffer::draw_indexed(uint32_t index_count, uint32_t instance_count, 
 	assert(!is_compute_pso);
 	assert(bound_pipe);
 	cmd.drawIndexed(index_count, instance_count, first_index, vertex_offset, first_instance);
+	dbg_state = DebugState::Recording;
 }
 
 void CommandBuffer::dispatch(uint32_t group_size_x, uint32_t group_size_y, uint32_t group_size_z)
@@ -370,6 +394,7 @@ void CommandBuffer::dispatch(uint32_t group_size_x, uint32_t group_size_y, uint3
 	assert(is_compute_pso);
 	assert(bound_pipe);
 	cmd.dispatch(group_size_x, group_size_y, group_size_z);
+	dbg_state = DebugState::Recording;
 }
 
 void CommandBuffer::dispatch(uvec3 group_size)
@@ -377,6 +402,7 @@ void CommandBuffer::dispatch(uvec3 group_size)
 	assert(is_compute_pso);
 	assert(bound_pipe);
 	cmd.dispatch(group_size.x, group_size.y, group_size.z);
+	dbg_state = DebugState::Recording;
 }
 
 void CommandBuffer::add_wait_semaphore(WaitSemaphoreInfo&& ws)
@@ -395,6 +421,7 @@ WaitSemaphoreInfo* CommandBuffer::get_wait_semaphore()
 void CommandBuffer::debug_name(std::string_view name)
 {
 	device->set_object_name(cmd, name);
+	dbg_name = name;
 }
 
 }

@@ -118,15 +118,19 @@ Device::Device(vk::Device _handle, vk::Instance owner, GPUInfo _gpu, DeviceFeatu
 		.debug_name = "device::upload_buffer"
 	});
 
-	for(uint32_t i = 0; i < num_ctx; i++)
+	if constexpr(perf_events_enabled)
 	{
-		perf_events[i].gfx_qp = handle.createQueryPool
-		({
-			.queryType = vk::QueryType::eTimestamp,
-			.queryCount = 64
-		});
-		
-		handle.resetQueryPool(perf_events[i].gfx_qp, 0, 64);
+
+		for(uint32_t i = 0; i < 2; ++i)
+		{
+			perf_events[i].gfx_qp = handle.createQueryPool
+			({
+				.queryType = vk::QueryType::eTimestamp,
+				.queryCount = 64
+			});
+			
+			handle.resetQueryPool(perf_events[i].gfx_qp, 0, 64);
+		}
 	}
 }
 
@@ -136,9 +140,12 @@ Device::~Device()
 	upload_buffer->device = nullptr;
 
 	wait_idle();
-	
-	for(uint32_t i = 0; i < num_ctx; i++)
-		handle.destroyQueryPool(perf_events[i].gfx_qp);
+
+	if constexpr(perf_events_enabled)
+	{	
+		for(uint32_t i = 0; i < 2; ++i)
+			handle.destroyQueryPool(perf_events[i].gfx_qp);
+	}
 
 	handle.destroyBuffer(upload_buffer->handle);
 	handle.freeMemory(upload_buffer->memory);
@@ -198,9 +205,10 @@ DeviceFeatures Device::get_features() const
 	return features;
 }
 
-vk::Queue Device::get_queue(Queue queue) const
+vk::Queue Device::get_queue(Queue queue) 
 {
 	assert(queue != Queue::Invalid);
+	std::scoped_lock<std::mutex> qlock{queues[static_cast<size_t>(queue)].queue_lock};
 	return queues[static_cast<size_t>(queue)].handle;
 }
 
@@ -339,7 +347,7 @@ ImageHandle Device::create_image(const ImageKey& key)
 			.imageExtent = {key.width, key.height, key.depth}
 		};
 
-		auto cb = request_command_buffer();
+		auto cb = request_command_buffer(Queue::Graphics, "create_image_cb");
 		{
 			cb.pipeline_barrier
 			({{
@@ -365,7 +373,8 @@ ImageHandle Device::create_image(const ImageKey& key)
 			}});
 
 		}
-		submit(cb);
+		auto ttv = submit(cb, submit_signal_timeline);
+		wait_timeline(Queue::Graphics, ttv);
 	}
 
 	return img;
@@ -403,7 +412,7 @@ void Device::release_resource(Queue queue, ReleaseRequest&& req)
 	queues[static_cast<size_t>(queue)].released_resources.emplace_back(std::move(req));
 }
 
-CommandBuffer Device::request_command_buffer(Queue queue)
+CommandBuffer Device::request_command_buffer(Queue queue, std::string_view dbg_name)
 {
 	ZoneScoped;
 	auto threadID = job::get_thread_id();
@@ -431,6 +440,8 @@ CommandBuffer Device::request_command_buffer(Queue queue)
 	}
 
 	set_object_name(cmd, std::format("cmd_{}::thread{}", get_queue_name(queue), threadID));
+	if(!dbg_name.empty())
+		set_object_name(cmd, dbg_name);
 
 	vk::CommandBufferBeginInfo bufbegin
 	{
@@ -440,14 +451,16 @@ CommandBuffer Device::request_command_buffer(Queue queue)
 	cpool.cmd_counter++;
 	//if(threadID != 0)
 	//	log::debug("request_cbuf: queue {}[{}] f{} cmd counter is now {}", get_queue_name(queue), threadID, fidx, cpool.cmd_counter.load()); 
-	return {this, cmd, threadID, queue, fidx};
+	return {this, cmd, threadID, queue, fidx, dbg_name};
 }
 
 void Device::submit(CommandBuffer& cmd)
 {
 	ZoneScoped;
 	assert(cmd.thread == job::get_thread_id());
+	assert(cmd.dbg_state == CommandBuffer::DebugState::Recording);
 	cmd.vk_object().end();
+	cmd.dbg_state = CommandBuffer::DebugState::Submitted; 
 
 	auto& queue = queues[static_cast<size_t>(cmd.queue)];
 
@@ -480,10 +493,11 @@ void Device::submit(CommandBuffer& cmd)
 uint64_t Device::submit(CommandBuffer& cmd, submit_signal_timeline_t)
 {
 	ZoneScoped;
+	auto queue = cmd.queue;
 	submit(cmd);
 
 	uint64_t val;
-	submit_queue(cmd.queue, &val);
+	submit_queue(queue, &val);
 	return val;
 }
 
@@ -508,14 +522,20 @@ void Device::submit_queue_nolock(Queue queue, uint64_t* sig_timeline)
 		return;
 	}
 
+	auto fidx = qd.frame_counter % num_ctx;
+
 	++qd.timeline;
-	qd.frame_tvals[qd.frame_counter % num_ctx] = qd.timeline;
+	qd.frame_tvals[fidx] = qd.timeline;
 
 	uint32_t cur_batch = 0;
 	qd.batch_data.push_back({});
 	qd.submit_batches.push_back({});
 	for(auto& cmd : qd.submissions)
 	{
+		if(cmd.ctx_index != fidx)
+			log::warn("submit_queue: command buffer exists across frame boundaries");
+
+		assert(cmd.dbg_state == CommandBuffer::DebugState::Submitted);
 		auto wsi_stages = cmd.requires_wsi_sync();
 		auto batch = &qd.batch_data[cur_batch];
 
@@ -591,7 +611,10 @@ void Device::submit_queue_nolock(Queue queue, uint64_t* sig_timeline)
 
 	for(size_t i = 0; i < qd.batch_data.size(); i++)
         {
-                qd.submit_batches[i] =
+		if(qd.batch_data[i].cmd.size() < 1)
+			log::warn("submit_queue_nolock: submitting empty batch");
+
+		qd.submit_batches[i] =
                 {
                         .waitSemaphoreInfoCount = static_cast<uint32_t>(qd.batch_data[i].wait_sem.size()),
                         .pWaitSemaphoreInfos = qd.batch_data[i].wait_sem.data(),
@@ -602,7 +625,10 @@ void Device::submit_queue_nolock(Queue queue, uint64_t* sig_timeline)
                 };
         }
 
-	[[maybe_unused]] auto status = get_queue(queue).submit2(static_cast<uint32_t>(qd.submit_batches.size()), qd.submit_batches.data(), nullptr);
+	if(qd.submit_batches.size() < 1)
+		log::warn("submit_queue_nolock: not submitting any batches!");
+
+	[[maybe_unused]] auto status = qd.handle.submit2(static_cast<uint32_t>(qd.submit_batches.size()), qd.submit_batches.data(), nullptr);
 
 	qd.submissions.clear();
 }
@@ -668,6 +694,7 @@ void Device::wait_idle()
 void Device::advance_timeline(Queue queue)
 {
 	ZoneScoped;
+	
 	auto& qd = queues[static_cast<size_t>(queue)];
 	std::scoped_lock<std::mutex> qlock{qd.queue_lock};
 	submit_queue_nolock(queue);
@@ -681,7 +708,7 @@ void Device::advance_timeline(Queue queue)
 		wait.semaphoreCount = 1;
 		wait.pSemaphores = &qd.semaphore;
 		wait.pValues = &qd.frame_tvals[fidx];
-
+			
 		auto result = handle.waitSemaphores(wait, sem_wait_timeout);
 		if(result == vk::Result::eTimeout)
 		{
@@ -694,22 +721,22 @@ void Device::advance_timeline(Queue queue)
 
 	if(queue == Queue::Graphics)
 	{
-		std::array<uint64_t, 64> timestamps;
-		auto num_evt = perf_events[pe_write].evt_head;
-		if(num_evt)
+		if constexpr(perf_events_enabled)
 		{
+			std::array<uint64_t, 64> timestamps;
+			auto num_evt = perf_events[pe_write].evt_head;
+			if(num_evt)
+			{
+				[[maybe_unused]] auto qp_res = handle.getQueryPoolResults(perf_events[pe_write].gfx_qp, 0, num_evt * 2, num_evt * 2 * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t), vk::QueryResultFlagBits::e64 | vk::QueryResultFlagBits::eWait);
+				auto period = gpu.props.limits.timestampPeriod; 
+				for(uint32_t idx = 0; idx < num_evt; idx++)
+					perf_events[pe_write].events[idx].time = (timestamps[idx * 2 + 1] - timestamps[idx * 2]) * (period / 1e6);
+			}
 
-		handle.getQueryPoolResults(perf_events[pe_write].gfx_qp, 0, num_evt * 2, num_evt * 2 * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t), vk::QueryResultFlagBits::e64 | vk::QueryResultFlagBits::eWait);
-
-		auto period = gpu.props.limits.timestampPeriod; 
-		for(uint32_t idx = 0; idx < num_evt; idx++)
-			perf_events[pe_write].events[idx].time = (timestamps[idx * 2 + 1] - timestamps[idx * 2]) * (period / 1e6);
-
+			std::swap(pe_write, pe_read);
+			handle.resetQueryPool(perf_events[pe_write].gfx_qp, 0, 64);
+			perf_events[pe_write].evt_head = 0;
 		}
-
-		std::swap(pe_write, pe_read);
-		handle.resetQueryPool(perf_events[pe_write].gfx_qp, 0, 64);
-		perf_events[pe_write].evt_head = 0;
 
 		wsi_sync[fidx].signaled = false;
 	}
@@ -740,18 +767,23 @@ void Device::advance_timeline(Queue queue)
 		const vk::PhysicalDeviceMemoryProperties& props = chain.get<vk::PhysicalDeviceMemoryProperties2>().memoryProperties;
 		const vk::PhysicalDeviceMemoryBudgetPropertiesEXT& budget = chain.get<vk::PhysicalDeviceMemoryBudgetPropertiesEXT>();
 
+		vmem_usage = 0;
+		vmem_budget = 0;
+
+		auto get_heap_budget = [this, &props, &budget](vulkan::BufferDomain dom)
 		{
 
-		vk::MemoryPropertyFlags flags = decode_buffer_domain(vulkan::BufferDomain::Device);
-		uint32_t index = 0;
-		for(uint32_t i = 0; i < props.memoryTypeCount; i++)
-			if(props.memoryTypes[i].propertyFlags == flags)
-				index = props.memoryTypes[i].heapIndex;
+			vk::MemoryPropertyFlags flags = decode_buffer_domain(dom);
+			uint32_t index = 0;
+			for(uint32_t i = 0; i < props.memoryTypeCount; i++)
+				if(props.memoryTypes[i].propertyFlags == flags)
+					index = props.memoryTypes[i].heapIndex;
 
-		vmem_usage = budget.heapUsage[index];
-		vmem_budget = budget.heapBudget[index];
-
-		}
+			vmem_usage += budget.heapUsage[index];
+			vmem_budget += budget.heapBudget[index];
+		};
+		get_heap_budget(vulkan::BufferDomain::Device);
+		get_heap_budget(vulkan::BufferDomain::DeviceMapped);
 	}
 }
 
@@ -931,17 +963,23 @@ Pipeline* Device::try_get_pipeline(const ComputePSOKey& key)
 
 void Device::start_perf_event(std::string_view name, CommandBuffer& cmd)
 {
-	auto fidx = pe_write;
-	auto head = perf_events[fidx].evt_head;
-	perf_events[fidx].events[head].name = name;
-	cmd.vk_object().writeTimestamp(vk::PipelineStageFlagBits::eTopOfPipe, perf_events[fidx].gfx_qp, head * 2);
+	if constexpr(perf_events_enabled)
+	{
+		auto fidx = pe_write;
+		auto head = perf_events[fidx].evt_head;
+		perf_events[fidx].events[head].name = name;
+		cmd.vk_object().writeTimestamp(vk::PipelineStageFlagBits::eTopOfPipe, perf_events[fidx].gfx_qp, head * 2);
+	}
 }
 
 void Device::end_perf_event(CommandBuffer& cmd)
 {
-	auto fidx = pe_write;
-	cmd.vk_object().writeTimestamp(vk::PipelineStageFlagBits::eBottomOfPipe, perf_events[fidx].gfx_qp, perf_events[fidx].evt_head * 2 + 1);
-	perf_events[fidx].evt_head++;
+	if constexpr(perf_events_enabled)
+	{
+		auto fidx = pe_write;
+		cmd.vk_object().writeTimestamp(vk::PipelineStageFlagBits::eBottomOfPipe, perf_events[fidx].gfx_qp, perf_events[fidx].evt_head * 2 + 1);
+		perf_events[fidx].evt_head++;
+	}
 }
 
 }

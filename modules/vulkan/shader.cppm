@@ -130,6 +130,8 @@ void shader_reflect(Shader& stg, const std::vector<uint32_t>& spirv)
 
 export std::expected<Shader, std::string_view> load_spv(vk::Device device, const std::filesystem::path& path)
 {
+	log::info("shader_cache: compiling shader {}", path.string());
+	
 	auto stage = infer_shader_kind(path);
 	std::ifstream spv_file{path, std::ios::binary | std::ios::ate};
 	if(!spv_file.is_open())

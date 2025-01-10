@@ -100,12 +100,12 @@ struct WaitSemaphoreInfo
 struct CommandBuffer
 {
 	CommandBuffer() : device{nullptr}, cmd{nullptr}, thread{0}, queue{0} {}
-	CommandBuffer(vulkan::Device* dev, vk::CommandBuffer cb, uint32_t tid, Queue q, size_t ci) : device{dev}, cmd{cb}, thread{tid}, queue{q}, ctx_index{ci}
+	CommandBuffer(vulkan::Device* dev, vk::CommandBuffer cb, uint32_t tid, Queue q, size_t ci, std::string_view dn = std::string_view{}) : device{dev}, cmd{cb}, thread{tid}, queue{q}, ctx_index{ci}, dbg_name{dn}
 	{
 	}
 
 	CommandBuffer(const CommandBuffer&) = delete;
-	CommandBuffer(CommandBuffer&& other) noexcept : device{other.device}, cmd{other.cmd}, thread{other.thread}, queue{other.queue}, ctx_index{other.ctx_index}, bound_pipe{other.bound_pipe}, wsi_sync{other.wsi_sync}, wsem{other.wsem}
+	CommandBuffer(CommandBuffer&& other) noexcept : device{other.device}, cmd{other.cmd}, thread{other.thread}, queue{other.queue}, ctx_index{other.ctx_index}, bound_pipe{other.bound_pipe}, wsi_sync{other.wsi_sync}, wsem{other.wsem}, dbg_state{other.dbg_state}, dbg_name{other.dbg_name}
 	{
 
 	}
@@ -121,6 +121,8 @@ struct CommandBuffer
 		bound_pipe = other.bound_pipe;
 		wsi_sync = other.wsi_sync;
 		wsem = other.wsem;
+		dbg_state = other.dbg_state;
+		dbg_name = other.dbg_name;
 		return *this;
 	}
 
@@ -178,6 +180,17 @@ struct CommandBuffer
 	Pipeline* bound_pipe{nullptr};
 	bool is_compute_pso{false};
 	WaitSemaphoreInfo wsem{};
+	enum class DebugState
+	{
+		Invalid,
+		Reset,
+		RecordingEmpty,
+		Recording,
+		Submitted
+	};
+
+	DebugState dbg_state{DebugState::RecordingEmpty};
+	std::string_view dbg_name{"cmd_generic"};
 };
 
 }

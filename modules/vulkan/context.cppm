@@ -144,6 +144,16 @@ public:
 		phys_devices = handle.enumeratePhysicalDevices();
 		if(phys_devices.empty())
 			log::error("vulkan: no compatible GPUs present");
+
+		int ctr = 0;
+		std::string devlist_msg;
+		for(auto dev : phys_devices)
+		{
+			auto props = dev.getProperties();
+			devlist_msg += std::format("\n{}: {}", ctr, std::string_view{props.deviceName});
+			ctr++;	
+		}
+		log::info("vulkan: enumerated render devices: {}", devlist_msg); 
 	}
 
 	~Context()
@@ -188,7 +198,7 @@ public:
 		std::sort(eligible_devices.begin(), eligible_devices.end(), device_sort_fn);
 		GPUInfo& gpu = eligible_devices.back();
 
-		log::info("vulkan: selected render device: {}", std::string_view{gpu.props.deviceName});
+		log::info("vulkan: selected render device {}", std::string_view{gpu.props.deviceName});
 
 		std::vector<vk::DeviceQueueCreateInfo> queue_ci;
 		std::unordered_set<uint32_t> unique_queue_families = 

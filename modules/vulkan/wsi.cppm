@@ -165,6 +165,7 @@ public:
 
 	void end_frame()
 	{
+		
 		device->submit_queue(Queue::Graphics);
 		vk::Semaphore present_sem = device->wsi_signal_present();
 
@@ -182,6 +183,9 @@ public:
 				.pPresentModes = &current_present_mode
 			}
 		};
+		
+		if(!device->get_features().has_swapchain_maintenance_ext)
+			present_chain.unlink<vk::SwapchainPresentModeInfoEXT>();
 
 		try
 		{
@@ -232,6 +236,10 @@ private:
 				.pPresentModes = props.present_modes.data()
 			}
 		};
+		
+		if(!device->get_features().has_swapchain_maintenance_ext)
+			chain.unlink<vk::SwapchainPresentModesCreateInfoEXT>();
+
 		swapchain = device->get_handle().createSwapchainKHR(chain.get<vk::SwapchainCreateInfoKHR>());
 		std::vector<vk::Image> img_handles = device->get_handle().getSwapchainImagesKHR(swapchain);
 		textures.clear();

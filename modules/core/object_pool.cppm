@@ -82,7 +82,7 @@ public:
 				if(fhead >= max_objects)
 				{
 					log::critical("object_pool[{}]: out of handles", name);
-					return invalid_object;
+					return handle_type{invalid_object};
 				}
 
 				return internal_allocate(fhead, std::forward<Args>(args)...);
@@ -126,7 +126,7 @@ public:
 		return objects[handle].data;
 	}
 private:
-	constexpr InternalObject& get_internal(handle_type handle) noexcept
+	constexpr InternalObject& get_internal(uint32_t handle) noexcept
 	{
 		return objects[handle];
 	}

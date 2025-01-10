@@ -495,7 +495,7 @@ public:
 		}
 
 		log::debug("mesh_registry: start async cb");
-		auto cb = device->request_command_buffer(vulkan::Queue::Transfer);
+		auto cb = device->request_command_buffer(vulkan::Queue::Transfer, "mesh_registry_copy");
 		{
 			cb.vk_object().copyBuffer(upload_buffer->handle, gpu_vertex_pos_buffer->handle, static_cast<uint32_t>(transfer_cmd_vpos.size()), transfer_cmd_vpos.data());
 			cb.vk_object().copyBuffer(upload_buffer->handle, gpu_vertex_attr_buffer->handle, static_cast<uint32_t>(transfer_cmd_vattr.size()), transfer_cmd_vattr.data());
@@ -550,7 +550,8 @@ public:
 		auto wt = device->submit(cb, vulkan::submit_signal_timeline);
 	
 		log::debug("mesh_registry: handover to gfx queue");
-		auto gcb = device->request_command_buffer(vulkan::Queue::Graphics);
+		auto gcb = device->request_command_buffer(vulkan::Queue::Graphics, "gfx_mesh_acb_wait");
+		gcb.debug_name("gfx_mesh_acb_wait");
 	        {
 			gcb.add_wait_semaphore({vulkan::Queue::Transfer, wt, vk::PipelineStageFlagBits2::eVertexAttributeInput | vk::PipelineStageFlagBits2::eIndexInput | vk::PipelineStageFlagBits2::eComputeShader});
 			log::debug("emit transfer->gfx barrier");
@@ -598,7 +599,11 @@ public:
 				}
 			});
 		}
+		
+		log::debug("mesh_registry: pre gfx queue submit");
+		assert(gcb.dbg_state == vulkan::CommandBuffer::DebugState::Recording);
 		auto gwt = device->submit(gcb, vulkan::submit_signal_timeline);
+		log::debug("mesh_registry: post gfx queue submit");
 
 		// wait for transfer queue completion	
 		device->wait_timeline(vulkan::Queue::Graphics, gwt);

@@ -73,6 +73,8 @@ struct PerfEvent
 	double time;
 };
 
+constexpr bool perf_events_enabled = true;
+
 class Device
 {
 public:
@@ -89,7 +91,7 @@ public:
 	vk::PhysicalDevice get_gpu() const;
 	DeviceFeatures get_features() const;
 	std::optional<uint32_t> get_memory_type(uint32_t type, vk::MemoryPropertyFlags flags) const;
-	vk::Queue get_queue(Queue queue) const;
+	vk::Queue get_queue(Queue queue);
 	uint32_t get_queue_index(Queue queue) const;	
 	vk::Sampler get_prefab_sampler(SamplerPrefab sampler) const;
 	uint64_t current_frame_index(Queue queue = Queue::Graphics) const;	
@@ -120,7 +122,7 @@ public:
 	ImageHandle create_image(const ImageKey& key);	
 	ImageViewHandle create_image_view(const ImageViewKey& key);
 
-	CommandBuffer request_command_buffer(Queue queue = Queue::Graphics);
+	CommandBuffer request_command_buffer(Queue queue = Queue::Graphics, std::string_view dbg_name = std::string_view{});
 	void submit(CommandBuffer& cmd);
 	uint64_t submit(CommandBuffer& cmd, submit_signal_timeline_t);
 	
@@ -148,8 +150,13 @@ public:
 
 	std::span<PerfEvent> get_perf_events()
 	{
-		auto fidx = pe_read;
-		return {perf_events[fidx].events.data(), perf_events[fidx].evt_head};
+		std::size_t count = 0;
+		if constexpr(perf_events_enabled)
+		{
+			count = perf_events[pe_read].evt_head;
+		}
+
+		return {perf_events[pe_read].events.data(), count};
 	}
 private:
 	vk::Device handle;
