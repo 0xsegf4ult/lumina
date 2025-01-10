@@ -79,18 +79,23 @@ struct MeshPass
 
 	Handle<ViewportData> viewport;
 	CullingData cull_data;
-	std::array<vulkan::BufferHandle, 2> gpu_culldata_buffers;
 
 	std::vector<Handle<RenderObject>> unbatched_objects;
 	std::vector<IndirectBatch> indirect_batches{};
 	std::vector<Multibatch> multibatches{};
 
-	size_t multibatch_capacity = 1024;
+	size_t multibatch_capacity = 32;
 	size_t command_capacity = 65536;
 
-	vulkan::BufferHandle gpu_multibatch_buffer;
-	vulkan::BufferHandle gpu_indirect_buffer;
-	vulkan::BufferHandle gpu_command_buffer;
+	struct GPUBuffers
+	{
+		vulkan::BufferHandle multibatch;
+		vulkan::BufferHandle indirect;
+		vulkan::BufferHandle command;
+		vulkan::BufferHandle culldata;
+	};
+
+	std::array<GPUBuffers, 2> gpu_buffers;
 };
 
 struct GPUIndirectObject
@@ -243,33 +248,33 @@ public:
 
 		auto uid = std::to_string(passes.size());
 
-		pass.gpu_multibatch_buffer = device->create_buffer
-		({
-			.domain = vulkan::BufferDomain::Device,
-			.usage = vulkan::BufferUsage::IndirectBuffer,
-			.size = sizeof(GPUMultibatch) * pass.multibatch_capacity,
-			.debug_name = "gpu::multibatches::" + uid
-		});
-
-		pass.gpu_indirect_buffer = device->create_buffer
-		({
-			.domain = vulkan::BufferDomain::Device,
-			.usage = vulkan::BufferUsage::StorageBuffer,
-			.size = sizeof(GPUIndirectObject) * pass.command_capacity,
-			.debug_name = "gpu_indirect::" + uid
-		});
-
-		pass.gpu_command_buffer = device->create_buffer
-		({
-			.domain = vulkan::BufferDomain::Device,
-			.usage = vulkan::BufferUsage::IndirectBuffer,
-			.size = sizeof(vk::DrawIndexedIndirectCommand) * pass.command_capacity,
-			.debug_name = "gpu_commands::" + uid
-		});
-
 		for(uint32_t i = 0; i < 2; i++)
 		{
-			pass.gpu_culldata_buffers[i] = device->create_buffer
+			pass.gpu_buffers[i].multibatch = device->create_buffer
+			({
+				.domain = vulkan::BufferDomain::Device,
+				.usage = vulkan::BufferUsage::IndirectBuffer,
+				.size = sizeof(GPUMultibatch) * pass.multibatch_capacity,
+				.debug_name = "gpu::multibatches::" + uid
+			});
+
+			pass.gpu_buffers[i].indirect = device->create_buffer
+			({
+				.domain = vulkan::BufferDomain::Device,
+				.usage = vulkan::BufferUsage::StorageBuffer,
+				.size = sizeof(GPUIndirectObject) * pass.command_capacity,
+				.debug_name = "gpu_indirect::" + uid
+			});
+
+			pass.gpu_buffers[i].command = device->create_buffer
+			({
+				.domain = vulkan::BufferDomain::Device,
+				.usage = vulkan::BufferUsage::IndirectBuffer,
+				.size = sizeof(vk::DrawIndexedIndirectCommand) * pass.command_capacity,
+				.debug_name = "gpu_commands::" + uid
+			});
+
+			pass.gpu_buffers[i].culldata = device->create_buffer
 			({
 				.domain = vulkan::BufferDomain::DeviceMapped,
 				.usage = vulkan::BufferUsage::StorageBuffer,
@@ -342,9 +347,9 @@ public:
 
 		cmd.vk_object().drawIndexedIndirectCount
 		(
-			pass.gpu_command_buffer->handle,
+			pass.gpu_buffers[cmd.ctx_index].command->handle,
 			batch->first * sizeof(vk::DrawIndexedIndirectCommand),
-			pass.gpu_multibatch_buffer->handle,
+			pass.gpu_buffers[cmd.ctx_index].multibatch->handle,
 			batchID * sizeof(GPUMultibatch) + __builtin_offsetof(GPUMultibatch, draw_count),
 			batch->count,
 			sizeof(vk::DrawIndexedIndirectCommand)
@@ -359,7 +364,7 @@ public:
 		uint32_t streambuf_head = 0;
 		if(!dirty_objects.empty())
 		{
-			auto cb = device->request_command_buffer();
+			auto cb = device->request_command_buffer(vulkan::Queue::Graphics, "gpu_scene::ready_objects");
 			device->start_perf_event("gpu_scene::ready_objects", cb);
 			cb.debug_name("gpu_scene::ready_objects");
 			{
@@ -422,9 +427,12 @@ public:
 		}
 		streambuf_head = 0;
 
-		auto cb = device->request_command_buffer();
+		auto cb = device->request_command_buffer(vulkan::Queue::Graphics, "gpu_scene::refresh_passes");
 		cb.debug_name("gpu_scene::refresh_passes");
 		device->start_perf_event("gpu_scene::refresh_passes", cb);
+
+		auto fidx = device->current_frame_index();
+
 		for(auto& p : passes)
 		{
 			refresh_pass(p);
@@ -440,31 +448,13 @@ public:
 					*(streambuf->map<GPUMultibatch>(streambuf_head) + i) = GPUMultibatch{batch.first, batch.count, 0};
 				}
 				
-				cb.pipeline_barrier
-				({
-					{
-					.src_stage = vk::PipelineStageFlagBits2::eTransfer,
-					.src_access = vk::AccessFlagBits2::eTransferWrite,
-					.dst_stage = vk::PipelineStageFlagBits2::eTransfer,
-					.dst_access = vk::AccessFlagBits2::eTransferWrite,
-					.buffer = p.gpu_multibatch_buffer.get()
-					},
-					{
-					.src_stage = vk::PipelineStageFlagBits2::eTransfer,
-					.src_access = vk::AccessFlagBits2::eTransferWrite,
-					.dst_stage = vk::PipelineStageFlagBits2::eTransfer,
-					.dst_access = vk::AccessFlagBits2::eTransferWrite,
-					.buffer = p.gpu_indirect_buffer.get()
-					}
-				});
-
 				vk::BufferCopy region
 				{
 					.srcOffset = streambuf_head,
 					.dstOffset = 0,
 					.size = sizeof(GPUMultibatch) * p.multibatches.size()
 				};
-				cb.vk_object().copyBuffer(streambuf->handle, p.gpu_multibatch_buffer->handle, 1, &region);
+				cb.vk_object().copyBuffer(streambuf->handle, p.gpu_buffers[fidx].multibatch->handle, 1, &region);
 
 				streambuf_head += sizeof(GPUMultibatch) * p.multibatches.size();	
 				for(auto i = 0ull; i < p.indirect_batches.size(); i++)
@@ -482,29 +472,22 @@ public:
 
 				region.srcOffset = streambuf_head;
 				region.size = sizeof(GPUIndirectObject) * p.indirect_batches.size();
-				cb.vk_object().copyBuffer(streambuf->handle, p.gpu_indirect_buffer->handle, 1, &region);
+				cb.vk_object().copyBuffer(streambuf->handle, p.gpu_buffers[fidx].indirect->handle, 1, &region);
 
 				streambuf_head += sizeof(GPUIndirectObject) * p.indirect_batches.size();
-
-				cb.pipeline_barrier
-				({
-					{
-					.src_stage = vk::PipelineStageFlagBits2::eTransfer,
-					.src_access = vk::AccessFlagBits2::eTransferWrite,
-					.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
-					.dst_access = vk::AccessFlagBits2::eShaderRead,
-					.buffer = p.gpu_multibatch_buffer.get()
-					},
-					{
-					.src_stage = vk::PipelineStageFlagBits2::eTransfer,
-					.src_access = vk::AccessFlagBits2::eTransferWrite,
-					.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
-					.dst_access = vk::AccessFlagBits2::eShaderRead,
-					.buffer = p.gpu_indirect_buffer.get()
-					}
-				});
 			}
 		}
+
+		cb.memory_barrier
+		({
+			{
+			.src_stage = vk::PipelineStageFlagBits2::eTransfer,
+			.src_access = vk::AccessFlagBits2::eTransferWrite,
+			.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
+			.dst_access = vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eShaderWrite
+			}
+		});
+
 		device->end_perf_event(cb);
 		device->submit(cb);
 	}
@@ -578,7 +561,7 @@ public:
 
 			if(cd.is_ortho)
 			{
-				auto* gcd = pass.gpu_culldata_buffers[device->current_frame_index()]->map<GPUCullingDataOrtho>();
+				auto* gcd = pass.gpu_buffers[device->current_frame_index()].culldata->map<GPUCullingDataOrtho>();
 				gcd->frustum_cull = cd.frustum_cull;
 				gcd->occlusion_cull = cd.occlusion_cull;
 				gcd->forced_lod = cd.forced_lod;
@@ -607,7 +590,7 @@ public:
 			}
 			else
 			{
-				auto* gcd = pass.gpu_culldata_buffers[device->current_frame_index()]->map<GPUCullingData>();
+				auto* gcd = pass.gpu_buffers[device->current_frame_index()].culldata->map<GPUCullingData>();
 				gcd->frustum_cull = cd.frustum_cull;
 				gcd->occlusion_cull = cd.occlusion_cull;
 				gcd->forced_lod = cd.forced_lod;
@@ -643,7 +626,7 @@ public:
 	void execute_compute_cull()
 	{
 		ZoneScoped;
-		auto cb = device->request_command_buffer();
+		auto cb = device->request_command_buffer(vulkan::Queue::Graphics, "gpu_scene::cull");
 		cb.debug_name("gpu_scene::cull");
 		device->start_perf_event("gpu_scene::cull", cb);
 		//FIXME: sort by type and bind pipelines less
@@ -676,16 +659,18 @@ public:
 				vp.needs_barrier = false;
 			}
 
+			auto& gbuf = pass.gpu_buffers[cb.ctx_index];
+
 			cb.push_descriptor_set
 			({
 				.storage_buffers = 
 	 			{
-					{0, pass.gpu_indirect_buffer.get()},
-					{1, pass.gpu_command_buffer.get()},
-					{2, pass.gpu_multibatch_buffer.get()},
+					{0, gbuf.indirect.get()},
+					{1, gbuf.command.get()},
+					{2, gbuf.multibatch.get()},
 					{3, gpu_object_buffer.get()},
 					{4, mesh_registry->get_lodbuffer()},
-					{5, pass.gpu_culldata_buffers[cb.ctx_index].get()}
+					{5, gbuf.culldata.get()}
 				},
 			});
 
@@ -703,7 +688,7 @@ public:
 
 			cb.dispatch((static_cast<uint32_t>(pass.indirect_batches.size()) / 32u) + 1u, 1u, 1u);
 			//FIXME: batch barriers
-			cb.pipeline_barrier
+/*			cb.pipeline_barrier
 			({
 				{
 				.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
@@ -720,7 +705,17 @@ public:
 				.buffer = pass.gpu_command_buffer.get()
 				}
 			});
+*/
 		}
+		cb.memory_barrier
+		({
+			{
+			.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
+			.src_access = vk::AccessFlagBits2::eShaderWrite,
+			.dst_stage = vk::PipelineStageFlagBits2::eDrawIndirect,
+			.dst_access = vk::AccessFlagBits2::eIndirectCommandRead
+			}
+		});
 		device->end_perf_event(cb);
 		device->submit(cb);
 	}
@@ -728,7 +723,7 @@ public:
 	void build_depth_pyramid()
 	{
 		ZoneScoped;
-		auto cb = device->request_command_buffer();
+		auto cb = device->request_command_buffer(vulkan::Queue::Graphics, "gpu_scene::buildHZB");
 		device->start_perf_event("gpu_scene::buildHZB", cb);
 		cb.debug_name("gpu_scene::depthreduce");
 		cb.bind_pipeline({"depthreduce.comp"});
