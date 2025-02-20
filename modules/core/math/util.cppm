@@ -17,4 +17,7 @@ constexpr T mix(const T& a, const T& b, const L& lerp)
 	return a * (1.0f - lerp) + b * lerp;
 }
 
+constexpr float fp_epsilon = std::numeric_limits<float>::epsilon();
+constexpr float fp_epsilon_sq = fp_epsilon * fp_epsilon;
+
 }

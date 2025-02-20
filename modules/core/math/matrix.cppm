@@ -301,6 +301,21 @@ public:
 			Vector<T, 4>{-wp / wn, -hp / hn, near * f, 1.0f}
 		};
 	}
+
+	template <size_t Num>
+	constexpr auto demote()
+	{
+		static_assert(N == M);
+		static_assert(Num < N);
+
+		return [this]<size_t... Is>(std::index_sequence<Is...>)
+		{
+			return Matrix<T, Num, Num>
+			{
+				this->data[Is].template demote<Num>()...
+			};
+		}(std::make_index_sequence<Num>{});
+	}
 private:
 	template <size_t... Is>
 	constexpr auto get_column_vector(size_t i, std::index_sequence<Is...>) const noexcept
@@ -351,14 +366,14 @@ constexpr auto operator-(const Matrix<T, M, N>& lhs, const Matrix<U, M, N>& rhs)
 	return Matrix<T, M, N>{lhs.as_vectors() - rhs.as_vectors()};
 }
 
-template <typename T, typename U, size_t M, size_t N>
-constexpr auto operator*(const Matrix<T, M, N>& m, U s) noexcept
+template <typename T, size_t M, size_t N>
+constexpr auto operator*(const Matrix<T, M, N>& m, T s) noexcept
 {
 	return Matrix<T, M, N>{m.as_vectors() * s};
 }
 
-template <typename T, typename U, size_t M, size_t N>
-constexpr auto operator*(T s, const Matrix<U, M, N>& m) noexcept
+template <typename T, size_t M, size_t N>
+constexpr auto operator*(T s, const Matrix<T, M, N>& m) noexcept
 {
 	return m * s;
 }

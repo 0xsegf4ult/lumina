@@ -16,6 +16,7 @@ add_custom_target(
 
 add_dependencies(lumina_core generate_config_module)
 
+target_compile_options(lumina_core PUBLIC ${LUMINA_COMPILE_OPTIONS})
 target_link_libraries(lumina_core PUBLIC m spdlog::spdlog pthread Tracy::TracyClient)
 target_sources(lumina_core PUBLIC FILE_SET CXX_MODULES FILES
 	mod.cppm

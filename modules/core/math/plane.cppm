@@ -52,9 +52,7 @@ export namespace lumina
 
 		static constexpr float distance(const basic_plane& p, const Vector<T, 3>& v) noexcept
 		{
-			//return Vector<T, 3>::dot(p.normal(), v - p.point());
 			return Vector<T, 3>::dot(p.normal(), v) - p.d;
-			//return (p.a * v.x + p.b * v.y + p.c * v.z + p.d) / std::sqrt((p.a * p.a) + (p.b * p.b) + (p.c * p.c));
 		}
 
 		float a, b, c, d;

@@ -265,6 +265,16 @@ struct Vector : public VectorStorage<T, N>
 		_b = _b.normalize();
 		_c = Vector<T, 3>::cross(_a, _b);
 	}
+
+	template <size_t Num>
+	constexpr auto demote()
+	{
+		static_assert(Num < N);
+		return [this]<size_t... Is>(std::index_sequence<Is...>)
+		{
+			return Vector<T, Num>{this->data[Is]...};
+		}(std::make_index_sequence<Num>{});
+	}
 private:
 	template <size_t... Is>
 	static constexpr auto impl_basis(size_t i, std::index_sequence<Is...>) noexcept

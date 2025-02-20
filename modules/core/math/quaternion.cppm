@@ -14,6 +14,8 @@ struct basic_quat : public Vector<T, 4>
 {
 public:
 	using Vector<T, 4>::Vector;
+	constexpr basic_quat() : Vector<T, 4>{T(0.0), T(0.0), T(0.0), T(1.0)} {}
+	
 	constexpr basic_quat(const Vector<T, 4>& v) : Vector<T, 4>(v) {}
 
 	constexpr auto as_vector() const noexcept
@@ -28,7 +30,7 @@ public:
 
 	static constexpr auto identity() noexcept
 	{
-		return basic_quat<T>{Vector<T, 4>::basis(4)};
+		return basic_quat<T>{Vector<T, 4>::basis(3)};
 	}
 
 	template <typename U>
@@ -144,7 +146,7 @@ constexpr auto operator~(const basic_quat<T>& q) noexcept
 }
 
 template <typename T, typename U>
-constexpr auto operator==(const basic_quat<T>& lhs, const basic_quat<U>& rhs) noexcept
+constexpr bool operator==(const basic_quat<T>& lhs, const basic_quat<U>& rhs) noexcept
 {
 	return lhs.as_vector() == rhs.as_vector();
 }

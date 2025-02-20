@@ -28,11 +28,20 @@ struct basic_transform
 	}
 	Matrix<T, 4, 4> as_matrix() const noexcept
 	{
-		return Matrix<T, 4, 4>::make_scale(scale) * Matrix<T, 4, 4>::transpose(basic_quat<float>::make_mat4(rotation)) * Matrix<T, 4, 4>::make_translation(translation);
+		return Matrix<T, 4, 4>::make_scale(scale) * basic_quat<float>::make_mat4(rotation) * Matrix<T, 4, 4>::make_translation(translation);
+	}
+
+	Matrix<T, 4, 4> as_inverse_translation_rotation() const noexcept
+	{
+		auto m = mat4::transpose(basic_quat<float>::make_mat4(rotation));
+		auto tv = vec4{translation, 1.0f};
+		m[3] = -(tv * m);
+		m[3][3] = 1.0f;
+		return m;
 	}
 	
 	Vector<T, 3> translation{0.0f};
-	basic_quat<float> rotation{0.0f, 0.0f, 0.0f, 1.0f};
+	basic_quat<T> rotation{0.0f, 0.0f, 0.0f, 1.0f};
 	Vector<T, 3> scale{1.0f};
 };
 
