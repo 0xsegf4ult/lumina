@@ -49,6 +49,7 @@ export namespace ImGui
 	using ImGui::TreePop;
 
 	using ImGui::GetForegroundDrawList;
+	using ImGui::GetBackgroundDrawList;
 	using ImGui::GetTextLineHeight;
 	using ImGui::GetID;
 	using ImGui::SameLine;
@@ -60,6 +61,8 @@ export namespace ImGui
 	using ImGui::PopID;
 	using ImGui::BeginDisabled;
 	using ImGui::EndDisabled;
+	
+	using ImGui::CalcTextSize;
 
 	using ImGui::Button;
 	using ImGui::InputInt;
@@ -96,6 +99,7 @@ export using ::ImColor;
 export using ::ImDrawList;
 export using ::ImDrawCmd;
 export using ::ImGuiID;
+export using ::ImTextureID;
 export using ::ImGuiViewport;
 export using ::ImGuiWindowFlags;
 export using ::ImGuiWindowFlags_NoCollapse;

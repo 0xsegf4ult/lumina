@@ -164,7 +164,7 @@ public:
 			.initial_data = pixels
 		});
 
-		io.Fonts->TexID = static_cast<void*>(font_texture.get());
+		io.Fonts->TexID = static_cast<ImTextureID>(reinterpret_cast<std::intptr_t>(font_texture.get()));
 
 		for(auto& fd : perframe_data)
 		{
@@ -317,7 +317,7 @@ public:
 						cb.set_scissor(0, scissor);
 						cb.push_constant(&proj, sizeof(mat4));
 						
-						vulkan::Image* tex = static_cast<vulkan::Image*>(draw_cmd->TextureId);
+						vulkan::Image* tex = reinterpret_cast<vulkan::Image*>(draw_cmd->TextureId);
 						
 						cb.push_descriptor_set
 						({	
