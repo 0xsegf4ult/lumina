@@ -239,8 +239,8 @@ public:
 					.logicOp = true,
 					.multiDrawIndirect = true,
 					.drawIndirectFirstInstance = true,
-					.fillModeNonSolid = true,
 					.depthClamp = true,
+					.fillModeNonSolid = true,
 					.samplerAnisotropy = true,
 					.textureCompressionBC = true
 				}
@@ -248,14 +248,14 @@ public:
 			},
 			{
 				.drawIndirectCount = true,
+				.shaderSampledImageArrayNonUniformIndexing = true,
 				.descriptorBindingSampledImageUpdateAfterBind = true,
 				.descriptorBindingPartiallyBound = true,
 				.descriptorBindingVariableDescriptorCount = true,
-				.shaderSampledImageArrayNonUniformIndexing = true,
 				.runtimeDescriptorArray = true,
 				.samplerFilterMinmax = true,
-				.timelineSemaphore = true,
-				.hostQueryReset = true
+				.hostQueryReset = true,
+				.timelineSemaphore = true
 			},
 			{
 				.synchronization2 = true,
