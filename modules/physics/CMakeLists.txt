@@ -7,4 +7,5 @@ target_sources(lumina_physics PUBLIC FILE_SET CXX_MODULES FILES
 	collision/shape/sphere.cppm
 	collision/shape/capsule.cppm
 	collision/shape/convex_hull.cppm
+	rigidbody_interface.cppm
 	mod.cppm)
