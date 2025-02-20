@@ -35,8 +35,6 @@ Device::Device(vk::Device _handle, vk::Instance owner, GPUInfo _gpu, DeviceFeatu
         queues[1].index = gpu.qf_indices.compute.value_or(queues[0].index);
         queues[2].index = gpu.qf_indices.transfer.value_or(queues[0].index);
 
-	//log::debug("assigned qindices gfx {} compute {} transfer {}", queues[0].index, queues[1].index, queues[2].index);
-
         vk::StructureChain<vk::SemaphoreCreateInfo, vk::SemaphoreTypeCreateInfo> sem_chain
         {
                 {},
@@ -50,7 +48,6 @@ Device::Device(vk::Device _handle, vk::Instance owner, GPUInfo _gpu, DeviceFeatu
         {
                 qd.handle = handle.getQueue(qd.index, 0);
                 qd.semaphore = handle.createSemaphore(sem_chain.get<vk::SemaphoreCreateInfo>());
-	//	log::debug("create semaphore {:#x}", reinterpret_cast<uint64_t>(static_cast<VkSemaphore>(qd.semaphore)));
                 set_object_name(qd.semaphore, get_queue_name(static_cast<Queue>(qd.index)).data() + std::string{" timeline"});
                 qd.timeline = 0;
 
@@ -256,7 +253,6 @@ BufferHandle Device::create_buffer(const BufferKey& key)
         });
         set_object_name(buf, key.debug_name);
 
-	//log::debug("create buffer: {} @ {:#x}", key.debug_name, reinterpret_cast<std::uint64_t>(static_cast<VkBuffer>(buf)));
         auto mem_req = handle.getBufferMemoryRequirements(buf);
         auto mem_idx = get_memory_type(mem_req.memoryTypeBits, decode_buffer_domain(key.domain));
 
@@ -449,8 +445,6 @@ CommandBuffer Device::request_command_buffer(Queue queue, std::string_view dbg_n
 	};
 	cmd.begin(bufbegin);
 	cpool.cmd_counter++;
-	//if(threadID != 0)
-	//	log::debug("request_cbuf: queue {}[{}] f{} cmd counter is now {}", get_queue_name(queue), threadID, fidx, cpool.cmd_counter.load()); 
 	return {this, cmd, threadID, queue, fidx, dbg_name};
 }
 
@@ -478,8 +472,6 @@ void Device::submit(CommandBuffer& cmd)
 	else
 	{
 		pool.cmd_counter--;
-		//if(cmd.thread != 0)
-		//	log::debug("submit: queue {}[{}] f{} cmd counter is now {}", get_queue_name(cmd.queue), cmd.thread, cmd.ctx_index, pool.cmd_counter.load());
 	}
 	
 	}
@@ -544,14 +536,12 @@ void Device::submit_queue_nolock(Queue queue, uint64_t* sig_timeline)
 		{
 			if(!batch->cmd.empty() || !batch->signal_sem.empty())
 			{
-	//			log::debug("split batch on wait");
 				cur_batch++;
 				qd.batch_data.push_back({});
 				qd.submit_batches.push_back({});
 				batch = &qd.batch_data[cur_batch];
 			}
 
-	//		log::debug("batch has waitsem");
 			batch->wait_sem.push_back
 			({
 				.semaphore = queues[static_cast<size_t>(wsem->wait_queue)].semaphore,
@@ -562,7 +552,6 @@ void Device::submit_queue_nolock(Queue queue, uint64_t* sig_timeline)
 
 		if(!batch->signal_sem.empty())
 		{
-	//		log::debug("split batch on signal");
 			cur_batch++;
 			qd.batch_data.push_back({});
 			qd.submit_batches.push_back({});
@@ -743,7 +732,6 @@ void Device::advance_timeline(Queue queue)
 
 	destroy_resources(queue);
 
-//	log::debug("advance {} timeline f{}", get_queue_name(queue), fidx);
 	for(uint32_t tid = 0; auto& pool : qd.cpools[fidx])
 	{
 		std::scoped_lock<std::mutex> r_lock{pool.lock};
@@ -858,7 +846,6 @@ PipelineLayout& Device::get_pipeline_layout(const PipelineLayoutKey& key)
 			num_dsl++;
 		}
 
-		log::debug("creating pipeline layout with {} descriptor sets, pconst size {}", num_dsl, key.pconst.size);
 		vk::PipelineLayoutCreateInfo layoutci
 		{
 		 	.setLayoutCount = num_dsl,

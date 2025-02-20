@@ -11,7 +11,9 @@ using std::uint32_t, std::size_t;
 
 namespace lumina::vulkan
 {
-	
+
+constexpr bool dump_reflection_info = false;
+
 export struct Shader
 {
 	vk::ShaderStageFlagBits pipeline_stage{};
@@ -66,7 +68,8 @@ void shader_reflect(Shader& stg, const std::vector<uint32_t>& spirv)
 		auto bindpoint = spvcomp.get_decoration(r.id, spv::DecorationBinding);
 		if(!type.array.empty())
 		{
-			log::debug("binding {} is variable size", bindpoint);
+			if constexpr(dump_reflection_info)
+				log::debug("binding {} is variable size", bindpoint);
 			dsl.variable_bindings |= (1u << bindpoint);	
 		}
 
@@ -75,20 +78,25 @@ void shader_reflect(Shader& stg, const std::vector<uint32_t>& spirv)
 		if(stage & vk::ShaderStageFlagBits::eVertex)
 		{
 			dsl.vs_bindings |= (1u << bindpoint);
-			dbg_s += " VS";
+			if constexpr(dump_reflection_info)
+				dbg_s += " VS";
 		}
 		if(stage & vk::ShaderStageFlagBits::eFragment)
 		{
 			dsl.fs_bindings |= (1u << bindpoint);
-			dbg_s += " FS";
+			if constexpr(dump_reflection_info)
+				dbg_s += " FS";
 		}
 		if(stage & vk::ShaderStageFlagBits::eCompute)
 		{
 			dsl.cs_bindings |= (1u << bindpoint);
-			dbg_s += "CS";
+			
+			if constexpr(dump_reflection_info)
+				dbg_s += "CS";
 		}
 
-		log::debug("binding {} is accessed in {}", bindpoint, dbg_s);
+		if constexpr(dump_reflection_info)
+			log::debug("binding {} is accessed in {}", bindpoint, dbg_s);
 
 		return bindpoint;
 	};
@@ -98,8 +106,9 @@ void shader_reflect(Shader& stg, const std::vector<uint32_t>& spirv)
 		{
 			auto set = spvcomp.get_decoration(tex.id, spv::DecorationDescriptorSet);
 			auto bindpoint = emit_bindings(tex, stg.dsl_keys[set]);
-			stg.dsl_keys[set].sampled_image_bindings |= (1u << bindpoint);
-			log::debug("binding {} is IMAGE_SAMPLER", bindpoint);
+			stg.dsl_keys[set].sampled_image_bindings |= (1u << bindpoint);	
+			if constexpr(dump_reflection_info)
+				log::debug("binding {} is IMAGE_SAMPLER", bindpoint);
 		}
 
 		for(const auto& ubo : res.uniform_buffers)
@@ -107,7 +116,8 @@ void shader_reflect(Shader& stg, const std::vector<uint32_t>& spirv)
 			auto set = spvcomp.get_decoration(ubo.id, spv::DecorationDescriptorSet);
 			auto bindpoint = emit_bindings(ubo, stg.dsl_keys[set]);
 			stg.dsl_keys[set].uniform_buffer_bindings |= (1u << bindpoint);
-			log::debug("binding {} is UNIFORM_BUFFER", bindpoint);
+			if constexpr(dump_reflection_info)
+				log::debug("binding {} is UNIFORM_BUFFER", bindpoint);
 		}
 
 		for(const auto& ssbo : res.storage_buffers)
@@ -115,7 +125,8 @@ void shader_reflect(Shader& stg, const std::vector<uint32_t>& spirv)
 			auto set = spvcomp.get_decoration(ssbo.id, spv::DecorationDescriptorSet);
 			auto bindpoint = emit_bindings(ssbo, stg.dsl_keys[set]);
 			stg.dsl_keys[set].storage_buffer_bindings |= (1u << bindpoint);
-			log::debug("binding {} is STORAGE_BUFFER", bindpoint);
+			if constexpr(dump_reflection_info)
+				log::debug("binding {} is STORAGE_BUFFER", bindpoint);
 		}
 
 		for(const auto& si : res.storage_images)
@@ -123,7 +134,8 @@ void shader_reflect(Shader& stg, const std::vector<uint32_t>& spirv)
 			auto set = spvcomp.get_decoration(si.id, spv::DecorationDescriptorSet);
 			auto bindpoint = emit_bindings(si, stg.dsl_keys[set]);
 			stg.dsl_keys[set].storage_image_bindings |= (1u << bindpoint);
-			log::debug("binding {} is STORAGE_IMAGE", bindpoint);
+			if constexpr(dump_reflection_info)
+				log::debug("binding {} is STORAGE_IMAGE", bindpoint);
 		}
 	}
 }
