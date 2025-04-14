@@ -19,6 +19,7 @@ target_compile_features(VulkanHppModule PUBLIC cxx_std_23)
 target_compile_definitions(VulkanHppModule PUBLIC
 	VULKAN_HPP_NO_CONSTRUCTORS
 	VULKAN_HPP_NO_SMART_HANDLE
+	VULKAN_HPP_NO_TO_STRING
 )
 target_compile_definitions(VulkanHppModule PUBLIC
 	VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1
