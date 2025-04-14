@@ -69,7 +69,8 @@ public:
 			.debug_name = "texture_registry::streambuffer"
 		});
 
-		std::byte data[16]{std::byte{255}};
+		std::array<std::byte, 16> data;
+		data.fill(std::byte{255});
 		vulkan::ImageHandle nullimg = device->create_image
 		({
 			.width = 2,
@@ -77,7 +78,7 @@ public:
 			.format = vk::Format::eR8G8B8A8Unorm,
 			.usage = vulkan::ImageUsage::ShaderRead,
 			.debug_name = "texture_registry::nulltex",
-			.initial_data = data
+			.initial_data = data.data()
 		});
 		transfer_ownership(std::move(nullimg));
 	}
