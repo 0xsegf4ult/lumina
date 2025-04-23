@@ -9,11 +9,8 @@ add_subdirectory("ui")
 add_subdirectory("renderer")
 add_subdirectory("physics")
 
-# refactor this
-add_subdirectory("fw")
-
 add_library(lumina::engine ALIAS lumina)
 
 target_compile_features(lumina INTERFACE cxx_std_23)
 target_compile_options(lumina INTERFACE ${LUMINA_COMPILE_OPTIONS})
-target_link_libraries(lumina INTERFACE lumina_core lumina_ecs lumina_platform lumina_ui lumina_vfs lumina_physics lumina_vulkan lumina_renderer lumina_fw)
+target_link_libraries(lumina INTERFACE lumina_core lumina_ecs lumina_platform lumina_ui lumina_vfs lumina_physics lumina_vulkan lumina_renderer)

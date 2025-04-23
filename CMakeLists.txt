@@ -1,7 +1,7 @@
-cmake_minimum_required(VERSION 3.30.1 FATAL_ERROR)
+cmake_minimum_required(VERSION 4.0.1 FATAL_ERROR)
 
 set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD
-    "0e5b6991-d74f-4b3d-a41c-cf096e0b2508")
+    "a9e1cf81-9932-4810-974b-6eccaf14e457")
 
 project(lumina VERSION 0.1 LANGUAGES CXX)
 
