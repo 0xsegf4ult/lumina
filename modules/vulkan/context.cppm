@@ -222,7 +222,7 @@ public:
 		}
 
 		// FIXME: make configurable
-		vk::StructureChain<vk::DeviceCreateInfo, vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan12Features, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceRobustness2FeaturesEXT> chain =
+		vk::StructureChain<vk::DeviceCreateInfo, vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features, vk::PhysicalDeviceVulkan12Features, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceRobustness2FeaturesEXT> chain =
 		{
 			{
 				.queueCreateInfoCount = static_cast<uint32_t>(queue_ci.size()),
@@ -245,6 +245,9 @@ public:
 					.textureCompressionBC = true
 				}
 
+			},
+			{
+				.multiview = true
 			},
 			{
 				.drawIndirectCount = true,

@@ -143,6 +143,7 @@ export struct GraphicsPSOKey
 		std::array<vk::Format, max_color_attachments> color{};
 		vk::Format depth = vk::Format::eUndefined;
 	} att_formats;
+	uint32_t view_mask = 0u;
 	std::array<std::filesystem::path, max_shader_stages> shaders{};
 
 	bool operator==(const GraphicsPSOKey& other) const noexcept
@@ -163,7 +164,7 @@ export struct GraphicsPSOKey
 			if(shaders[i] != other.shaders[i])
 				return false;
 
-		return depth_mode == other.depth_mode;
+		return depth_mode == other.depth_mode && view_mask == other.view_mask;
 	}
 };
 
@@ -271,6 +272,7 @@ export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk:
 
 	vk::PipelineRenderingCreateInfo dynamic_rendering
 	{
+		.viewMask = key.view_mask,
 		.colorAttachmentCount = num_color_attachments,
 		.pColorAttachmentFormats = key.att_formats.color.data(),
 		.depthAttachmentFormat = key.att_formats.depth

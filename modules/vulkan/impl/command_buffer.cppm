@@ -112,7 +112,8 @@ void CommandBuffer::begin_render_pass(const RenderPassDesc& rp)
 
 	vk::RenderingInfo render_info;
 	render_info.renderArea = rp.render_area;
-	render_info.layerCount = 1;
+	render_info.layerCount = rp.view_mask == 0 ? 1 : 0;
+	render_info.viewMask = rp.view_mask;
 
 	uint32_t att_count = 0;
 	bool has_depth = false;

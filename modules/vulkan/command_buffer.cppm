@@ -86,6 +86,7 @@ struct RenderPassDesc
 {
 	vk::Rect2D render_area{};
 	array_proxy<AttachmentDesc> attachments;
+	uint32_t view_mask = 0;
 	bool auto_scissor{true};
 	AutoViewportMode auto_viewport{AutoViewportMode::Normal};
 };
