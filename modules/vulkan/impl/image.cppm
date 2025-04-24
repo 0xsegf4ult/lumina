@@ -126,7 +126,7 @@ vk::ImageUsageFlags decode_image_usage(ImageUsage usage)
         case ImageUsage::RWGraphics:
 		return vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled;
 	case ImageUsage::Cubemap:
-		return vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst;
+		return vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc;
         case ImageUsage::RWCompute:
                 return vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eStorage;
         case ImageUsage::RWGeneric:

@@ -507,7 +507,7 @@ public:
 			 	{
 			 	.src_stage = vk::PipelineStageFlagBits2::eTransfer,
 				.src_access = vk::AccessFlagBits2::eTransferWrite,
-				.dst_stage = vk::PipelineStageFlagBits2::eBottomOfPipe,
+				.dst_stage = vk::PipelineStageFlagBits2::eAllCommands,
 				.src_queue = vulkan::Queue::Transfer,
 				.dst_queue = vulkan::Queue::Graphics,
 				.buffer = gpu_vertex_pos_buffer.get(),
@@ -515,7 +515,7 @@ public:
 				{
 				.src_stage = vk::PipelineStageFlagBits2::eTransfer,
 				.src_access = vk::AccessFlagBits2::eTransferWrite,
-				.dst_stage = vk::PipelineStageFlagBits2::eBottomOfPipe,
+				.dst_stage = vk::PipelineStageFlagBits2::eAllCommands,
 				.src_queue = vulkan::Queue::Transfer,
 				.dst_queue = vulkan::Queue::Graphics,
 				.buffer = gpu_vertex_attr_buffer.get(),
@@ -523,7 +523,7 @@ public:
 				{
 				.src_stage = vk::PipelineStageFlagBits2::eTransfer,
 				.src_access = vk::AccessFlagBits2::eTransferWrite,
-				.dst_stage = vk::PipelineStageFlagBits2::eBottomOfPipe,
+				.dst_stage = vk::PipelineStageFlagBits2::eAllCommands,
 				.src_queue = vulkan::Queue::Transfer,
 				.dst_queue = vulkan::Queue::Graphics,
 				.buffer = gpu_index_buffer.get(),
@@ -531,7 +531,7 @@ public:
 				{
 				.src_stage = vk::PipelineStageFlagBits2::eTransfer,
 				.src_access = vk::AccessFlagBits2::eTransferWrite,
-				.dst_stage = vk::PipelineStageFlagBits2::eBottomOfPipe,
+				.dst_stage = vk::PipelineStageFlagBits2::eAllCommands,
 				.src_queue = vulkan::Queue::Transfer,
 				.dst_queue = vulkan::Queue::Graphics,
 				.buffer = gpu_skinned_vertices.get(),
@@ -539,7 +539,7 @@ public:
 				{
 				.src_stage = vk::PipelineStageFlagBits2::eTransfer,
 				.src_access = vk::AccessFlagBits2::eTransferWrite,
-				.dst_stage = vk::PipelineStageFlagBits2::eBottomOfPipe,
+				.dst_stage = vk::PipelineStageFlagBits2::eAllCommands,
 				.src_queue = vulkan::Queue::Transfer,
 				.dst_queue = vulkan::Queue::Graphics,
 				.buffer = gpu_meshlod_buffer.get(),

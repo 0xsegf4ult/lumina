@@ -31,9 +31,9 @@ constexpr size_t sem_wait_timeout = 1000000000;
 
 Device::Device(vk::Device _handle, vk::Instance owner, GPUInfo _gpu, DeviceFeatures _features) : handle{_handle}, instance{owner}, gpu{_gpu}, features{_features}
 {
-        queues[0].index = gpu.qf_indices.graphics.value();
-        queues[1].index = gpu.qf_indices.compute.value_or(queues[0].index);
-        queues[2].index = gpu.qf_indices.transfer.value_or(queues[0].index);
+	queues[0].index = gpu.qf_indices.graphics.value();
+	queues[1].index = gpu.qf_indices.compute.value_or(queues[0].index);
+	queues[2].index = gpu.qf_indices.transfer.value_or(queues[0].index);
 
         vk::StructureChain<vk::SemaphoreCreateInfo, vk::SemaphoreTypeCreateInfo> sem_chain
         {
@@ -797,7 +797,6 @@ Shader* Device::try_get_shader(const std::filesystem::path& path)
 	}
 
 	{
-		std::unique_lock<std::shared_mutex> lock{shader_cache.lock, std::defer_lock};
 		std::filesystem::path spath = "shaders" / path;
 	        spath += std::filesystem::path{".spv"};
 		auto result = load_spv(handle, spath);
@@ -805,9 +804,10 @@ Shader* Device::try_get_shader(const std::filesystem::path& path)
 		{
 			log::warn("shader_cache: failed to load shader {}: {}", path.string(), result.error());
 			return nullptr;
-		}	
-		lock.lock();
-		shader_cache.data[shandle] = *result;
+		}
+
+		std::unique_lock<std::shared_mutex> lock{shader_cache.lock};
+		shader_cache.data.insert_or_assign(shandle, *result);
 		return &shader_cache.data[shandle];
 	}
 }

@@ -786,7 +786,7 @@ public:
 					.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
 					.src_access = vk::AccessFlagBits2::eShaderWrite,
 					.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
-					.dst_access = vk::AccessFlagBits2::eShaderRead,
+					.dst_access = vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eShaderWrite,
 					.src_layout = vk::ImageLayout::eGeneral,
 					.dst_layout = vk::ImageLayout::eGeneral,
 					.image = vp.depth_pyramid.get(),
