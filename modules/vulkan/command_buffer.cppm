@@ -64,7 +64,7 @@ const uint32_t max_attachments = 8;
 
 struct AttachmentDesc
 {
-	Image* resource{nullptr};
+	ImageView* resource{nullptr};
 	vk::AttachmentLoadOp load_op{vk::AttachmentLoadOp::eDontCare};
 	vk::AttachmentStoreOp store_op{vk::AttachmentStoreOp::eStore};
 	float clear{0.0f};

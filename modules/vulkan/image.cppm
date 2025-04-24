@@ -70,6 +70,7 @@ enum class ImageUsage
 	ColorAttachment,
 	DepthAttachment,
 	Framebuffer,
+	Cubemap,
 	RWGraphics,
 	RWCompute,
 	RWGeneric,
@@ -108,9 +109,19 @@ public:
 		return handle;
 	}
 
-	ImageView* get_default_view(size_t index = 0) const
+	ImageView* get_default_view() const
 	{
-		return default_views[index].get();
+		return mip_views[0].get();
+	}
+
+	ImageView* get_mip_view(size_t mip) const
+	{
+		return mip_views[mip].get();
+	}
+
+	ImageView* get_layer_view(size_t layer) const
+	{
+		return layer_views[layer].get();
 	}
 
 	const ImageKey& get_key() const
@@ -147,7 +158,8 @@ private:
 	bool owns_memory = true;
 
 	std::vector<MipInfo> mips;
-	std::vector<ImageViewHandle> default_views;
+	std::vector<ImageViewHandle> mip_views;
+	std::vector<ImageViewHandle> layer_views;
 	Device* device;
 	ImageKey key;
 	vk::Image handle;

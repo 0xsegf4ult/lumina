@@ -86,7 +86,10 @@ uint32_t format_blocksize(vk::Format fmt)
 	case vk::Format::eBc5UnormBlock:
 	case vk::Format::eBc7UnormBlock:
 	case vk::Format::eBc7SrgbBlock:
+	case vk::Format::eR32G32B32A32Sfloat:
 		return 16u;
+	case vk::Format::eR16G16B16A16Sfloat:
+		return 8u;
 	case vk::Format::eR8G8B8A8Srgb:
 	case vk::Format::eR8G8B8A8Unorm:
 		return 4u;
@@ -120,9 +123,10 @@ vk::ImageUsageFlags decode_image_usage(ImageUsage usage)
         case ImageUsage::DepthAttachment:
                 return vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled;
         case ImageUsage::Framebuffer:
-                return vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled;
         case ImageUsage::RWGraphics:
-                return vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled;
+		return vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled;
+	case ImageUsage::Cubemap:
+		return vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst;
         case ImageUsage::RWCompute:
                 return vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eStorage;
         case ImageUsage::RWGeneric:
@@ -147,7 +151,8 @@ Image::Image(Device* dev, const ImageKey& k, vk::Image img, vk::DeviceMemory m) 
 	uint32_t h = key.height;
 	uint32_t off = 0u;
 	
-	default_views.resize(key.levels);
+	mip_views.resize(key.levels);
+	layer_views.resize(key.layers);
 	vk::ImageType type = image_type_from_size(key.width, key.height, key.depth);
 
 	for(uint32_t l = 0u; l < key.levels; l++)
@@ -157,13 +162,26 @@ Image::Image(Device* dev, const ImageKey& k, vk::Image img, vk::DeviceMemory m) 
 		w /= 2;
 		h /= 2;
 
-		default_views[l] = device->create_image_view
+		mip_views[l] = device->create_image_view
+		({
+			.image = this,
+			.view_type = (key.usage == ImageUsage::Cubemap && key.layers == 6) ? vk::ImageViewType::eCube : get_imageview_type(type),
+			.format = key.format,
+			.level = l,
+			.debug_name = key.debug_name + "::view-mip" + std::to_string(l)
+		});
+	}
+
+	for(uint32_t l = 0u; l < key.layers; l++)
+	{
+		layer_views[l] = device->create_image_view
 		({
 			.image = this,
 			.view_type = get_imageview_type(type),
 			.format = key.format,
-			.level = l,
-			.debug_name = key.debug_name + "::view" + std::to_string(l)
+			.layer = l,
+			.layers = 1,
+			.debug_name = key.debug_name + "::view-layer" + std::to_string(l)
 		});
 	}
 }

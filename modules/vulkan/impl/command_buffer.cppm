@@ -132,7 +132,7 @@ void CommandBuffer::begin_render_pass(const RenderPassDesc& rp)
 			if(has_depth)
 				throw std::logic_error("begin_render_pass: render pass cannot have multiple depth attachments");
 
-			depth.imageView = att.resource->get_default_view()->get_handle();
+			depth.imageView = att.resource->get_handle();
 			depth.imageLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
 			depth.loadOp = att.load_op;
 			depth.storeOp = att.store_op;
@@ -144,7 +144,7 @@ void CommandBuffer::begin_render_pass(const RenderPassDesc& rp)
 
 		auto& new_att = attachments[att_count++];
 			
-		new_att.imageView = att.resource->get_default_view()->get_handle();
+		new_att.imageView = att.resource->get_handle();
 		new_att.imageLayout = vk::ImageLayout::eColorAttachmentOptimal;
 		new_att.loadOp = att.load_op;
 		new_att.storeOp = att.store_op;

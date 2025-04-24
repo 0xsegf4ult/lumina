@@ -763,13 +763,14 @@ public:
 				       	{
 						{
 						.bindpoint = 0, 
-						.view = (i == 0) ? vp.zbuf->get_default_view() : vp.depth_pyramid->get_default_view(i - 1), 		.sampler = dp_sampler,
+						.view = (i == 0) ? vp.zbuf->get_default_view() : vp.depth_pyramid->get_mip_view(i - 1), 
+						.sampler = dp_sampler,
 						.layout = (i == 0) ? vk::ImageLayout::eShaderReadOnlyOptimal : vk::ImageLayout::eGeneral
 						}
 					},
 					.storage_images =
 					{
-						{1, vp.depth_pyramid->get_default_view(i)},
+						{1, vp.depth_pyramid->get_mip_view(i)},
 					}	
 				});
 

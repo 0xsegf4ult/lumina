@@ -107,6 +107,11 @@ Device::Device(vk::Device _handle, vk::Instance owner, GPUInfo _gpu, DeviceFeatu
 	sampler_ci.minFilter = vk::Filter::eNearest;
 	sampler_prefabs[3] = handle.createSampler(sampler_ci);
 
+	sampler_ci.borderColor = vk::BorderColor::eFloatOpaqueWhite;
+	sampler_ci.magFilter = vk::Filter::eLinear;
+	sampler_ci.minFilter = vk::Filter::eLinear;
+	sampler_prefabs[4] = handle.createSampler(sampler_ci);
+
 	upload_buffer = create_buffer
 	({
 		.domain = BufferDomain::Host,
@@ -293,8 +298,13 @@ ImageHandle Device::create_image(const ImageKey& key)
 
 	vk::ImageUsageFlagBits default_usage_flags = vk::ImageUsageFlagBits{};
 
+	vk::ImageCreateFlagBits img_flags = vk::ImageCreateFlagBits{};
+	if(key.usage == ImageUsage::Cubemap && key.layers == 6)
+		img_flags = vk::ImageCreateFlagBits::eCubeCompatible;
+
 	vk::Image image = handle.createImage
 	({
+		.flags = img_flags,
 		.imageType = type,
 		.format = key.format,
 		.extent = {key.width, key.height, key.depth},
