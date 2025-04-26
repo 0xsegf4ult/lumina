@@ -669,6 +669,8 @@ bool Device::wait_timeline(Queue queue, uint64_t val)
 
 void Device::destroy_resources(Queue queue)
 {
+	ZoneScoped;
+
 	auto& qd = queues[static_cast<size_t>(queue)];
 
 	for(auto& req : qd.released_resources)
@@ -706,11 +708,12 @@ void Device::advance_timeline(Queue queue)
 	auto fidx = qd.frame_counter.load() % num_ctx;
 
 	{
+		ZoneScopedN("sema_wait");
 		vk::SemaphoreWaitInfo wait;
 		wait.semaphoreCount = 1;
 		wait.pSemaphores = &qd.semaphore;
 		wait.pValues = &qd.frame_tvals[fidx];
-			
+
 		auto result = handle.waitSemaphores(wait, sem_wait_timeout);
 		if(result == vk::Result::eTimeout)
 		{
@@ -725,6 +728,8 @@ void Device::advance_timeline(Queue queue)
 	{
 		if constexpr(perf_events_enabled)
 		{
+			ZoneScopedN("collect_perf_events");
+
 			std::array<uint64_t, 64> timestamps;
 			auto num_evt = perf_events[pe_write].evt_head;
 			if(num_evt)
@@ -745,6 +750,10 @@ void Device::advance_timeline(Queue queue)
 
 	destroy_resources(queue);
 
+	{
+
+	ZoneScopedN("reset_cmd");
+
 	for(uint32_t tid = 0; auto& pool : qd.cpools[fidx])
 	{
 		std::scoped_lock<std::mutex> r_lock{pool.lock};
@@ -758,6 +767,8 @@ void Device::advance_timeline(Queue queue)
 			log::debug("extending cmdpool {}[{}] lifetime, {} unsubmitted", get_queue_name(queue), tid, pool.cmd_counter.load());
 		}
 		tid++;
+	}
+
 	}
 
 	// update memory budget ocassionally
