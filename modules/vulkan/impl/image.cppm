@@ -90,6 +90,7 @@ uint32_t format_blocksize(vk::Format fmt)
 		return 16u;
 	case vk::Format::eR16G16B16A16Sfloat:
 		return 8u;
+	case vk::Format::eR16G16Sfloat:
 	case vk::Format::eR8G8B8A8Srgb:
 	case vk::Format::eR8G8B8A8Unorm:
 		return 4u;

@@ -97,11 +97,14 @@ Device::Device(vk::Device _handle, vk::Instance owner, GPUInfo _gpu, DeviceFeatu
         sampler_ci.maxAnisotropy = 0.0f;
         sampler_prefabs[1] = handle.createSampler(sampler_ci);
 
-        sampler_ci.addressModeU = vk::SamplerAddressMode::eClampToBorder;
-        sampler_ci.addressModeV = vk::SamplerAddressMode::eClampToBorder;
-        sampler_ci.addressModeW = vk::SamplerAddressMode::eClampToBorder;
+        sampler_ci.addressModeU = vk::SamplerAddressMode::eClampToEdge;
+        sampler_ci.addressModeV = vk::SamplerAddressMode::eClampToEdge;
+        sampler_ci.addressModeW = vk::SamplerAddressMode::eClampToEdge;
         sampler_prefabs[2] = handle.createSampler(sampler_ci);
 
+	sampler_ci.addressModeU = vk::SamplerAddressMode::eClampToBorder;
+	sampler_ci.addressModeV = vk::SamplerAddressMode::eClampToBorder;
+	sampler_ci.addressModeW = vk::SamplerAddressMode::eClampToBorder;
 	sampler_ci.borderColor = vk::BorderColor::eFloatOpaqueBlack;
 	sampler_ci.magFilter = vk::Filter::eNearest;
 	sampler_ci.minFilter = vk::Filter::eNearest;

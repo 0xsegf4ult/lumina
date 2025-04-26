@@ -118,7 +118,7 @@ void main()
 	uint gID = gl_GlobalInvocationID.x;
 	uint batchID = gpu_indirect_objects[gID].batch;
 
-	if(gID < culling_data.global_draw_count)
+	if(gID < multibatches[batchID].first + multibatches[batchID].count)
 	{
 		bool visible = is_visible(gID);
 		uvec4 visibleBallot = subgroupBallot(visible);

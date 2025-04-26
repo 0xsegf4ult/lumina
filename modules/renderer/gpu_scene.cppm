@@ -82,6 +82,7 @@ struct MeshPass
 
 	std::vector<Handle<RenderObject>> unbatched_objects;
 	std::vector<IndirectBatch> indirect_batches{};
+	std::vector<IndirectBatch> padded_indirect_batches{};
 	std::vector<Multibatch> multibatches{};
 
 	size_t multibatch_capacity = 32;
@@ -156,6 +157,13 @@ struct GPUCullingDataOrtho
 	uint32_t global_draw_count;
 };
 
+}
+
+uint32_t align_up(uint32_t val, uint32_t size)
+{
+	auto mod{val % size};
+	val -= mod;
+	return mod == 0 ? val : val + size;
 }
 
 export namespace lumina::render
@@ -325,21 +333,22 @@ public:
 		return gpu_object_buffer.get();
 	}
 
-	Multibatch* fetch_batch(Handle<MeshPass> mp)
+	Multibatch* fetch_batch(Handle<MeshPass> mp, Handle<MaterialTemplate> pipe)
 	{
 		for(auto& mb : get_pass(mp).multibatches)
 		{
-			return &mb;
+			if(mb.pipeline == pipe)
+				return &mb;
 		}
 
 		return nullptr;
 	}
 
-	bool render_batch(vulkan::CommandBuffer& cmd, Handle<MeshPass> mp)
+	bool render_batch(vulkan::CommandBuffer& cmd, Handle<MeshPass> mp, Handle<MaterialTemplate> pipe)
 	{
 		MeshPass& pass = get_pass(mp);
 
-		Multibatch* batch = fetch_batch(mp);
+		Multibatch* batch = fetch_batch(mp, pipe);
 		if(!batch)
 			return false;
 
@@ -364,6 +373,7 @@ public:
 		uint32_t streambuf_head = 0;
 		if(!dirty_objects.empty())
 		{
+			ZoneScopedN("copy_gpu_objects");
 			auto cb = device->request_command_buffer(vulkan::Queue::Graphics, "gpu_scene::ready_objects");
 			device->start_perf_event("gpu_scene::ready_objects", cb);
 			cb.debug_name("gpu_scene::ready_objects");
@@ -436,16 +446,19 @@ public:
 		for(auto& p : passes)
 		{
 			refresh_pass(p);
-			
+		
+			{
+			ZoneScopedN("copy_gpu_batches");
+
 			uint32_t multibuf_size = p.multibatches.size() * sizeof(GPUMultibatch);
-			uint32_t indbuf_size = p.indirect_batches.size() * sizeof(GPUIndirectObject);
+			uint32_t indbuf_size = p.padded_indirect_batches.size() * sizeof(GPUIndirectObject);
 			
 			if(!p.multibatches.empty())
 			{
 				for(auto i = 0ull; i < p.multibatches.size(); i++)
 				{
 					const Multibatch& batch = p.multibatches[i];
-					*(streambuf->map<GPUMultibatch>(streambuf_head) + i) = GPUMultibatch{batch.first, batch.count, 0};
+					*(streambuf->map<GPUMultibatch>(streambuf_head) + i) = GPUMultibatch{batch.first, batch.count, 0, 0};
 				}
 				
 				vk::BufferCopy region
@@ -457,10 +470,14 @@ public:
 				cb.vk_object().copyBuffer(streambuf->handle, p.gpu_buffers[fidx].multibatch->handle, 1, &region);
 
 				streambuf_head += sizeof(GPUMultibatch) * p.multibatches.size();	
-				for(auto i = 0ull; i < p.indirect_batches.size(); i++)
+				for(auto i = 0ull; i < p.padded_indirect_batches.size(); i++)
 				{
-					const IndirectBatch& batch = p.indirect_batches[i];
+					const IndirectBatch& batch = p.padded_indirect_batches[i];
+					if(batch.object == 0)
+						continue;
+
 					const Mesh& mesh = mesh_registry->get(get_object(batch.object).mesh);
+					
 					*(streambuf->map<GPUIndirectObject>(streambuf_head) + i) = GPUIndirectObject
 					{
 						.lod0_offset = mesh.lod0_offset,
@@ -471,10 +488,12 @@ public:
 				}
 
 				region.srcOffset = streambuf_head;
-				region.size = sizeof(GPUIndirectObject) * p.indirect_batches.size();
+				region.size = sizeof(GPUIndirectObject) * p.padded_indirect_batches.size();
 				cb.vk_object().copyBuffer(streambuf->handle, p.gpu_buffers[fidx].indirect->handle, 1, &region);
 
-				streambuf_head += sizeof(GPUIndirectObject) * p.indirect_batches.size();
+				streambuf_head += sizeof(GPUIndirectObject) * p.padded_indirect_batches.size();
+			}
+
 			}
 		}
 
@@ -577,8 +596,8 @@ public:
 				gcd->frustum_planes[1] = Plane(projT[3] - projT[0]).normalize().as_vector(); // x - w < 0
 				gcd->frustum_planes[2] = Plane(projT[3] + projT[1]).normalize().as_vector(); // y + w > 0
 				gcd->frustum_planes[3] = Plane(projT[3] - projT[1]).normalize().as_vector(); // y - w < 0
-													     				gcd->znear = cplanes.x;
-																	gcd->zfar = cplanes.y;
+				gcd->znear = cplanes.x;
+				gcd->zfar = cplanes.y;
 				gcd->p00 = proj[0][0];
 				gcd->p11 = proj[1][1];
 
@@ -586,7 +605,7 @@ public:
 				gcd->pyr_h = static_cast<float>(vp.dp_height);
 
 				gcd->cam_pos = vec4{vp.camera->get_pos(), 1.0f};
-				gcd->global_draw_count = static_cast<uint32_t>(pass.indirect_batches.size());
+				gcd->global_draw_count = static_cast<uint32_t>(pass.padded_indirect_batches.size());
 			}
 			else
 			{
@@ -618,7 +637,7 @@ public:
 
 				gcd->cam_pos = vec4{vp.camera->get_pos(), 1.0f};
 
-				gcd->global_draw_count = static_cast<uint32_t>(pass.indirect_batches.size());
+				gcd->global_draw_count = static_cast<uint32_t>(pass.padded_indirect_batches.size());
 			}
 		}
 	}
@@ -686,7 +705,7 @@ public:
 				});
 			}
 
-			cb.dispatch((static_cast<uint32_t>(pass.indirect_batches.size()) / 32u) + 1u, 1u, 1u);
+			cb.dispatch((static_cast<uint32_t>(pass.padded_indirect_batches.size()) / 32u) + 1u, 1u, 1u);
 			//FIXME: batch barriers
 /*			cb.pipeline_barrier
 			({
@@ -746,9 +765,9 @@ public:
 				},
 				{
 				.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
-				.src_access = vk::AccessFlagBits2::eShaderWrite,
+				.src_access = vk::AccessFlagBits2::eShaderWrite | vk::AccessFlagBits2::eShaderRead,
 				.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
-				.dst_access = vk::AccessFlagBits2::eShaderRead,
+				.dst_access = vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eShaderWrite,
 				.src_layout = vk::ImageLayout::eGeneral,
 				.dst_layout = vk::ImageLayout::eGeneral,
 				.image = vp.depth_pyramid.get()
@@ -784,7 +803,7 @@ public:
 				({
 					{
 					.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
-					.src_access = vk::AccessFlagBits2::eShaderWrite,
+					.src_access = vk::AccessFlagBits2::eShaderWrite | vk::AccessFlagBits2::eShaderRead,
 					.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
 					.dst_access = vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eShaderWrite,
 					.src_layout = vk::ImageLayout::eGeneral,
@@ -914,7 +933,9 @@ private:
 				nb.first = 0;
 				nb.count = 1;
 				nb.pipeline = Handle<MaterialTemplate>{static_cast<uint32_t>(get_object(pass.indirect_batches[0].object).material >> 32)};
-				pass.indirect_batches[0].batch = 0;
+
+				uint32_t bctr = 0;
+				pass.indirect_batches[0].batch = bctr;
 
 				for(uint32_t i = 1; i < pass.indirect_batches.size(); i++)
 				{
@@ -928,6 +949,7 @@ private:
 
 					if(!same_pipe)
 					{
+						bctr++;
 						pass.multibatches.push_back(nb);
 						nb.first = i;
 						nb.count = 1;
@@ -937,10 +959,30 @@ private:
 					{
 						nb.count++;
 					}
-
-					batch->batch = static_cast<uint32_t>(pass.multibatches.size());
+					
+					batch->batch = static_cast<uint32_t>(bctr);
 				}
 				pass.multibatches.push_back(nb);
+
+				pass.padded_indirect_batches.clear();
+				const Multibatch& last = pass.multibatches.back(); 
+
+				// start of each multibatch needs to be aligned with subgroup size
+				// since we write multibatch draw_count for an entire wave from the first thread
+				// and we need to avoid diverging multibatch id within a wave
+
+				uint32_t count = 0;
+				for(auto& mb : pass.multibatches)
+				{
+					for(uint32_t i = mb.first; i < mb.first + mb.count; i++)
+						pass.padded_indirect_batches.push_back(pass.indirect_batches[i]);
+
+					for(uint32_t i = mb.first + mb.count; i < align_up(mb.first + mb.count, 32); i++)
+						pass.padded_indirect_batches.push_back({});
+				
+					mb.first = align_up(count, 32);
+					count += mb.count;
+				}
 			}
 		}
 	}
