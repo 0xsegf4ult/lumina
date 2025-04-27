@@ -130,6 +130,8 @@ vk::ImageUsageFlags decode_image_usage(ImageUsage usage)
         case ImageUsage::Framebuffer:
         case ImageUsage::RWGraphics:
 		return vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled;
+	case ImageUsage::CubemapRead:
+		return vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst;
 	case ImageUsage::Cubemap:
 		return vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc;
         case ImageUsage::RWCompute:
@@ -165,7 +167,7 @@ Image::Image(Device* dev, const ImageKey& k, vk::Image img, vk::DeviceMemory m) 
 		mip_views[level] = device->create_image_view
 		({
 			.image = this,
-			.view_type = (key.usage == ImageUsage::Cubemap && key.layers == 6) ? vk::ImageViewType::eCube : get_imageview_type(type),
+			.view_type = ((key.usage == ImageUsage::Cubemap || key.usage == ImageUsage::CubemapRead) && key.layers == 6) ? vk::ImageViewType::eCube : get_imageview_type(type),
 			.format = key.format,
 			.level = level,
 			.debug_name = key.debug_name + "::view-mip" + std::to_string(level)
@@ -175,8 +177,6 @@ Image::Image(Device* dev, const ImageKey& k, vk::Image img, vk::DeviceMemory m) 
 		{
 			subresources.push_back({w, h, off});
 			off += size_for_image(w, h, key.format);
-			w /= 2;
-			h /= 2;
 
 			if(level != 0)
 				continue;
@@ -191,6 +191,9 @@ Image::Image(Device* dev, const ImageKey& k, vk::Image img, vk::DeviceMemory m) 
 				.debug_name = key.debug_name + "::view-layer" + std::to_string(layer)
 			});
 		}
+			
+		w /= 2;
+		h /= 2;
 	}
 }
 

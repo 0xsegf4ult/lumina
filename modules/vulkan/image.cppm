@@ -70,6 +70,7 @@ enum class ImageUsage
 	ColorAttachment,
 	DepthAttachment,
 	Framebuffer,
+	CubemapRead,
 	Cubemap,
 	RWGraphics,
 	RWCompute,

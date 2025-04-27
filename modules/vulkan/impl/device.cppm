@@ -302,7 +302,7 @@ ImageHandle Device::create_image(const ImageKey& key)
 	vk::ImageUsageFlagBits default_usage_flags = vk::ImageUsageFlagBits{};
 
 	vk::ImageCreateFlagBits img_flags = vk::ImageCreateFlagBits{};
-	if(key.usage == ImageUsage::Cubemap && key.layers == 6)
+	if((key.usage == ImageUsage::Cubemap || key.usage == ImageUsage::CubemapRead) && key.layers == 6)
 		img_flags = vk::ImageCreateFlagBits::eCubeCompatible;
 
 	vk::Image image = handle.createImage
