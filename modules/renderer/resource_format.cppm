@@ -20,7 +20,7 @@ struct TextureFileFormat
 		Invalid,
 		BC4Unorm,
 		BC5Unorm,
-		BC6HSfloat,
+		BC6HUfloat,
 		BC7Unorm,
 		BC7SRGB
 	};
@@ -33,8 +33,8 @@ struct TextureFileFormat
 			return TextureFormat::BC4Unorm;
 		case vk::Format::eBc5UnormBlock:
 			return TextureFormat::BC5Unorm;
-		case vk::Format::eBc6HSfloatBlock:
-			return TextureFormat::BC6HSfloat;
+		case vk::Format::eBc6HUfloatBlock:
+			return TextureFormat::BC6HUfloat;
 		case vk::Format::eBc7UnormBlock:
 			return TextureFormat::BC7Unorm;
 		case vk::Format::eBc7SrgbBlock:
@@ -52,8 +52,8 @@ struct TextureFileFormat
 			return vk::Format::eBc4UnormBlock;
 		case TextureFormat::BC5Unorm:
 			return vk::Format::eBc5UnormBlock;
-		case TextureFormat::BC6HSfloat:
-			return vk::Format::eBc6HSfloatBlock;
+		case TextureFormat::BC6HUfloat:
+			return vk::Format::eBc6HUfloatBlock;
 		case TextureFormat::BC7Unorm:
 			return vk::Format::eBc7UnormBlock;
 		case TextureFormat::BC7SRGB:
