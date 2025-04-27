@@ -132,21 +132,21 @@ public:
 	void disown();
 	void disown_memory();
 
-	struct MipInfo
+	struct ImageSubresource
 	{
 		uint32_t width;
 		uint32_t height;
 		uint32_t byte_offset;
 	};
 
-	std::span<const MipInfo> get_mips() const
+	std::span<const ImageSubresource> get_subresources() const
 	{
-		return mips;
+		return subresources;
 	}
 
-	const MipInfo& get_mip(uint32_t level) const
+	const ImageSubresource& get_subresource(uint32_t level = 0, uint32_t layer = 0) const
 	{
-		return mips[level];
+		return subresources[level * key.layers + layer];
 	}
 
 	vk::Extent2D get_extent2D() const 
@@ -157,7 +157,7 @@ private:
 	bool owns_image = true;
 	bool owns_memory = true;
 
-	std::vector<MipInfo> mips;
+	std::vector<ImageSubresource> subresources;
 	std::vector<ImageViewHandle> mip_views;
 	std::vector<ImageViewHandle> layer_views;
 	Device* device;

@@ -152,7 +152,6 @@ public:
 
 		struct texture_load_data
 		{
-			uint32_t mips;
 			uint32_t size;
 			uint32_t offset;
 			Handle<Texture> texture;
@@ -191,34 +190,38 @@ public:
 				continue;
 			}
 
-			auto* mip_table = reinterpret_cast<const TextureFileFormat::MipLevelDescription*>(ptr + header->mip_desc_offset);
+			auto* res_table = reinterpret_cast<const TextureFileFormat::SubresourceDescription*>(ptr + header->subres_desc_offset);
 			uint32_t tex_size = 0u;
-			for(uint32_t l = 0; l < header->num_mips; l++)
+			uint32_t num_mips = 0;
+			uint32_t num_layers = 0;
+			for(uint32_t l = 0; l < header->num_subres; l++)
 			{
-				tex_size += mip_table[l].data_size_bytes;
+				tex_size += res_table[l].data_size_bytes;
+				num_mips = std::max(num_mips, res_table[l].level + 1);
+				num_layers = std::max(num_layers, res_table[l].layer + 1);
 			}
 
-			// mip levels are contiguous
 			if(used + tex_size <= streambuf_size)
 			{
 				load_data.push_back
 				({
-					.mips = header->num_mips, .size = tex_size, .offset = used,
+					.size = tex_size, .offset = used,
 					.texture = Handle<Texture>{entry.promised_handle}
 				});
 				auto& last = load_data.back();
 
 				last.image = device->create_image
 				({
-					.width = mip_table[0].width,
-					.height = mip_table[0].height,
-					.levels = header->num_mips,
+					.width = res_table[0].width,
+					.height = res_table[0].height,
+					.levels = num_mips,
+					.layers = num_layers,
 					.format = TextureFileFormat::to_vkformat(header->texformat),
 					.usage = vulkan::ImageUsage::ShaderRead,
 					.debug_name = entry.path
 				});
 				to_update.push_back(Handle<Texture>{entry.promised_handle});
-				memcpy(streambuf->map<std::byte>() + used, ptr + mip_table[0].data_offset, tex_size);
+				memcpy(streambuf->map<std::byte>() + used, ptr + res_table[0].data_offset, tex_size);
 				used += tex_size;
 			}
 			else
@@ -248,13 +251,15 @@ public:
 					.image = info.image.get()
 				}});
 
-				for(uint32_t l = 0; l < info.mips; l++)
+				const vulkan::ImageKey& key = info.image->get_key();
+
+				for(uint32_t level = 0; level < key.levels; level++)
 				{
 					vk::BufferImageCopy copy_region
 					{
-						.bufferOffset = info.offset + info.image->get_mip(l).byte_offset,
-						.imageSubresource = {vk::ImageAspectFlagBits::eColor, l, 0, 1},
-						.imageExtent = {info.image->get_mip(l).width, info.image->get_mip(l).height, 1}
+						.bufferOffset = info.offset + info.image->get_subresource(level, 0).byte_offset,
+						.imageSubresource = {vk::ImageAspectFlagBits::eColor, level, 0, key.layers},
+						.imageExtent = {info.image->get_subresource(level, 0).width, info.image->get_subresource(level, 0).height, 1}
 					};
 
 					tcb.vk_object().copyBufferToImage(streambuf->handle, info.image->get_handle(), vk::ImageLayout::eTransferDstOptimal, {copy_region});

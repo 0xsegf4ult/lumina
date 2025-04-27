@@ -12,7 +12,7 @@ export namespace lumina::render
 struct TextureFileFormat
 {
 	constexpr static uint32_t fmt_magic = 0x5845544c;
-	constexpr static uint32_t fmt_major_version = 0u;
+	constexpr static uint32_t fmt_major_version = 2u;
 	constexpr static uint32_t fmt_minor_version = 1u;
 
 	enum class TextureFormat : uint32_t
@@ -20,6 +20,7 @@ struct TextureFileFormat
 		Invalid,
 		BC4Unorm,
 		BC5Unorm,
+		BC6HSfloat,
 		BC7Unorm,
 		BC7SRGB
 	};
@@ -32,6 +33,8 @@ struct TextureFileFormat
 			return TextureFormat::BC4Unorm;
 		case vk::Format::eBc5UnormBlock:
 			return TextureFormat::BC5Unorm;
+		case vk::Format::eBc6HSfloatBlock:
+			return TextureFormat::BC6HSfloat;
 		case vk::Format::eBc7UnormBlock:
 			return TextureFormat::BC7Unorm;
 		case vk::Format::eBc7SrgbBlock:
@@ -49,6 +52,8 @@ struct TextureFileFormat
 			return vk::Format::eBc4UnormBlock;
 		case TextureFormat::BC5Unorm:
 			return vk::Format::eBc5UnormBlock;
+		case TextureFormat::BC6HSfloat:
+			return vk::Format::eBc6HSfloatBlock;
 		case TextureFormat::BC7Unorm:
 			return vk::Format::eBc7UnormBlock;
 		case TextureFormat::BC7SRGB:
@@ -64,14 +69,16 @@ struct TextureFileFormat
 		uint32_t vmajor{fmt_major_version};
 		uint32_t vminor{fmt_minor_version};
 		TextureFormat texformat;
-		uint32_t num_mips;
-		uint32_t mip_desc_offset;
+		uint32_t num_subres;
+		uint32_t subres_desc_offset;
 	};
 
-	struct MipLevelDescription
+	struct SubresourceDescription
 	{
 		uint32_t width;
 		uint32_t height;
+		uint32_t level;
+		uint32_t layer;
 		uint32_t data_offset;
 		uint32_t data_size_bytes;
 	};

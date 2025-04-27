@@ -71,6 +71,7 @@ uint32_t format_blockdim(vk::Format fmt)
 	switch(fmt)
 	{
 	case vk::Format::eBc5UnormBlock:
+	case vk::Format::eBc6HSfloatBlock:
 	case vk::Format::eBc7UnormBlock:
 	case vk::Format::eBc7SrgbBlock:
 		return 4u;
@@ -84,12 +85,15 @@ uint32_t format_blocksize(vk::Format fmt)
 	switch(fmt)
 	{
 	case vk::Format::eBc5UnormBlock:
+	case vk::Format::eBc6HSfloatBlock:
 	case vk::Format::eBc7UnormBlock:
 	case vk::Format::eBc7SrgbBlock:
 	case vk::Format::eR32G32B32A32Sfloat:
 		return 16u;
 	case vk::Format::eR16G16B16A16Sfloat:
 		return 8u;
+	case vk::Format::eR16G16B16Sfloat:
+		return 6u;
 	case vk::Format::eR16G16Sfloat:
 	case vk::Format::eR8G8B8A8Srgb:
 	case vk::Format::eR8G8B8A8Unorm:
@@ -156,34 +160,37 @@ Image::Image(Device* dev, const ImageKey& k, vk::Image img, vk::DeviceMemory m) 
 	layer_views.resize(key.layers);
 	vk::ImageType type = image_type_from_size(key.width, key.height, key.depth);
 
-	for(uint32_t l = 0u; l < key.levels; l++)
+	for(uint32_t level = 0u; level < key.levels; level++)
 	{
-		mips.push_back({w, h, off});
-		off += size_for_image(w, h, key.format);
-		w /= 2;
-		h /= 2;
-
-		mip_views[l] = device->create_image_view
+		mip_views[level] = device->create_image_view
 		({
 			.image = this,
 			.view_type = (key.usage == ImageUsage::Cubemap && key.layers == 6) ? vk::ImageViewType::eCube : get_imageview_type(type),
 			.format = key.format,
-			.level = l,
-			.debug_name = key.debug_name + "::view-mip" + std::to_string(l)
+			.level = level,
+			.debug_name = key.debug_name + "::view-mip" + std::to_string(level)
 		});
-	}
+	
+		for(uint32_t layer = 0u; layer < key.layers; layer++)
+		{
+			subresources.push_back({w, h, off});
+			off += size_for_image(w, h, key.format);
+			w /= 2;
+			h /= 2;
 
-	for(uint32_t l = 0u; l < key.layers; l++)
-	{
-		layer_views[l] = device->create_image_view
-		({
-			.image = this,
-			.view_type = get_imageview_type(type),
-			.format = key.format,
-			.layer = l,
-			.layers = 1,
-			.debug_name = key.debug_name + "::view-layer" + std::to_string(l)
-		});
+			if(level != 0)
+				continue;
+			
+			layer_views[layer] = device->create_image_view
+			({
+				.image = this,
+				.view_type = get_imageview_type(type),
+				.format = key.format,
+				.layer = layer,
+				.layers = 1,
+				.debug_name = key.debug_name + "::view-layer" + std::to_string(layer)
+			});
+		}
 	}
 }
 
