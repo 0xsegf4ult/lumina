@@ -90,13 +90,16 @@ uint32_t format_blocksize(vk::Format fmt)
 	case vk::Format::eBc7SrgbBlock:
 	case vk::Format::eR32G32B32A32Sfloat:
 		return 16u;
+	case vk::Format::eR32G32Sfloat:
 	case vk::Format::eR16G16B16A16Sfloat:
 		return 8u;
 	case vk::Format::eR16G16B16Sfloat:
 		return 6u;
+	case vk::Format::eR32Uint:
 	case vk::Format::eR16G16Sfloat:
 	case vk::Format::eR8G8B8A8Srgb:
 	case vk::Format::eR8G8B8A8Unorm:
+	case vk::Format::eB10G11R11UfloatPack32:
 		return 4u;
 	case vk::Format::eR8G8Unorm:
 		return 2u;
@@ -135,7 +138,7 @@ vk::ImageUsageFlags decode_image_usage(ImageUsage usage)
 	case ImageUsage::Cubemap:
 		return vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc;
         case ImageUsage::RWCompute:
-                return vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eStorage;
+                return vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst;
         case ImageUsage::RWGeneric:
                 return vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eStorage;
         case ImageUsage::PresentSource:

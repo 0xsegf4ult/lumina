@@ -10,7 +10,7 @@ import xxhash;
 
 import lumina.core;
 
-using std::uint32_t, std::uint16_t, std::size_t;
+using std::uint32_t, std::uint16_t, std::uint8_t, std::size_t;
 
 namespace lumina::vulkan
 {
@@ -24,6 +24,8 @@ export struct DescriptorSetLayoutKey
 {
 	uint16_t sampled_image_bindings{0};
 	uint16_t storage_image_bindings{0};
+	uint16_t separate_image_bindings{0};
+	uint16_t sampler_bindings{0};
 	uint16_t uniform_buffer_bindings{0};
 	uint16_t storage_buffer_bindings{0};
 	uint16_t vs_bindings{0};
@@ -31,9 +33,11 @@ export struct DescriptorSetLayoutKey
 	uint16_t cs_bindings{0};
 	uint16_t variable_bindings{0};
 
+	uint8_t binding_arraysize[16];	
+
 	constexpr bool is_empty() const noexcept
 	{
-		return sampled_image_bindings == 0 && storage_image_bindings == 0 && uniform_buffer_bindings == 0 && storage_buffer_bindings == 0;
+		return sampled_image_bindings == 0 && storage_image_bindings == 0 && separate_image_bindings == 0 && sampler_bindings == 0 && uniform_buffer_bindings == 0 && storage_buffer_bindings == 0;
 	}
 
 	bool operator==(const DescriptorSetLayoutKey& other) const noexcept
@@ -62,6 +66,20 @@ export struct ImageBinding
 {
 	uint32_t bindpoint;
 	ImageView* view;
+	vk::ImageLayout layout = vk::ImageLayout::eGeneral;
+};
+
+export struct ImageArrayBinding
+{
+	uint32_t bindpoint;
+	array_proxy<ImageView*> views;
+	vk::ImageLayout layout = vk::ImageLayout::eGeneral;
+};
+
+export struct SamplerBinding
+{
+	uint32_t bindpoint;
+	vk::Sampler sampler;
 };
 
 export struct DescriptorSet
@@ -74,6 +92,9 @@ export struct DescriptorSetPush
 {
 	array_proxy<CombinedImageSamplerBinding> sampled_images;
 	array_proxy<ImageBinding> storage_images;
+	array_proxy<ImageArrayBinding> storage_image_arrays;
+	array_proxy<ImageBinding> separate_images;
+	array_proxy<SamplerBinding> samplers;
 	array_proxy<BufferBinding> uniform_buffers;
 	array_proxy<BufferBinding> storage_buffers;
 };
@@ -115,6 +136,14 @@ export vk::DescriptorSetLayout create_descriptor_layout(vk::Device device, const
 		{
 			type = vk::DescriptorType::eStorageImage;
 		}
+		else if(key.separate_image_bindings & (1u << i))
+		{
+			type = vk::DescriptorType::eSampledImage;
+		}
+		else if(key.sampler_bindings & (1u << i))
+		{
+			type = vk::DescriptorType::eSampler;
+		}
 		else if(key.uniform_buffer_bindings & (1u << i))
 		{
 			type = vk::DescriptorType::eUniformBuffer;
@@ -132,7 +161,7 @@ export vk::DescriptorSetLayout create_descriptor_layout(vk::Device device, const
 		({
 			i,
 			type,
-			(variable_count) ? static_cast<uint32_t>(max_variable_resources) : 1u,
+			(variable_count) ? static_cast<uint32_t>(max_variable_resources) : key.binding_arraysize[i],
 			stages,
 			nullptr
 		});

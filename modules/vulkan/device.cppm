@@ -53,6 +53,7 @@ enum class SamplerPrefab
 	TextureAnisotropic,
 	Texture,
 	TextureClamp,
+	TextureClampNearest,
 	Shadowmap,
 	Cubemap
 };
@@ -220,7 +221,7 @@ private:
 	vk::DeviceSize vmem_usage{0};
 	vk::DeviceSize vmem_budget{0};
 
-	std::array<vk::Sampler, 5> sampler_prefabs;
+	std::array<vk::Sampler, 6> sampler_prefabs;
 
 	struct ShaderCache
 	{

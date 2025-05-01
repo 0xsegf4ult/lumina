@@ -47,6 +47,7 @@ export struct ViewportData
 	uint32_t dp_width{0};
 	uint32_t dp_height{0};
 	uint32_t dp_miplevels{0};
+	std::array<vulkan::ImageView*, 12> dp_layer_views;
 	bool needs_barrier = true;
 };
 
@@ -190,6 +191,15 @@ public:
 			.size = streambuf_size,
 			.debug_name = "GPUScene::streambuf"
 		});
+
+		spd_globalatomic = device->create_buffer
+		({
+			.domain = vulkan::BufferDomain::DeviceMapped,
+			.usage = vulkan::BufferUsage::StorageBuffer,
+			.size = sizeof(uint32_t),
+			.debug_name = "GPUScene::spd_atomic"
+		});
+		*(spd_globalatomic->map<uint32_t>()) = 0u;
 
 		vk::SamplerCreateInfo samplerci
 		{
@@ -514,16 +524,6 @@ public:
 	void ready_culling()
 	{
 		ZoneScoped;
-		auto previous_pow2 = [](uint32_t v) -> uint32_t
-		{
-			uint32_t res = 1;
-
-			while(res * 2 < v)
-				res *= 2;
-
-			return res;
-		};
-
 		auto dp_num_mips = [](uint32_t w, uint32_t h) -> uint32_t
 		{
 			uint32_t result = 1;
@@ -544,8 +544,9 @@ public:
 			{
 				assert(vp.camera);
 				auto res = vp.override_res != uvec2{0u} ? vp.override_res : vp.camera->get_res();
-				vp.dp_width = previous_pow2(res.x);
-				vp.dp_height = previous_pow2(res.y);
+			
+				vp.dp_width = res.x / 2;
+				vp.dp_height = res.y / 2;	
 				vp.dp_miplevels = dp_num_mips(vp.dp_width, vp.dp_height);
 
 				if(!vp.depth_pyramid || vp.last_res != res)
@@ -560,6 +561,10 @@ public:
 						.usage = vulkan::ImageUsage::RWCompute,
 						.debug_name = std::format("depth_pyramid::zbuf_{:#x}", reinterpret_cast<std::uint64_t>(vp.zbuf))
 					});
+
+					for(auto i = 0u; i < vp.dp_miplevels; i++)
+						vp.dp_layer_views[i] = vp.depth_pyramid->get_mip_view(i);
+
 					vp.last_res = res;
 
 					vp.needs_barrier = true;
@@ -706,25 +711,6 @@ public:
 			}
 
 			cb.dispatch((static_cast<uint32_t>(pass.padded_indirect_batches.size()) / 32u) + 1u, 1u, 1u);
-			//FIXME: batch barriers
-/*			cb.pipeline_barrier
-			({
-				{
-				.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
-				.src_access = vk::AccessFlagBits2::eShaderWrite,
-				.dst_stage = vk::PipelineStageFlagBits2::eDrawIndirect,
-				.dst_access = vk::AccessFlagBits2::eIndirectCommandRead,
-				.buffer = pass.gpu_multibatch_buffer.get()
-				},
-				{
-				.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
-				.src_access = vk::AccessFlagBits2::eShaderWrite,
-				.dst_stage = vk::PipelineStageFlagBits2::eDrawIndirect,
-				.dst_access = vk::AccessFlagBits2::eIndirectCommandRead,
-				.buffer = pass.gpu_command_buffer.get()
-				}
-			});
-*/
 		}
 		cb.memory_barrier
 		({
@@ -745,7 +731,7 @@ public:
 		auto cb = device->request_command_buffer(vulkan::Queue::Graphics, "gpu_scene::buildHZB");
 		device->start_perf_event("gpu_scene::buildHZB", cb);
 		cb.debug_name("gpu_scene::depthreduce");
-		cb.bind_pipeline({"depthreduce.comp"});
+		cb.bind_pipeline({"depth_downsample_singlepass.comp"});
 
 		for(auto& vp : viewports)
 		{
@@ -774,46 +760,59 @@ public:
 				}
 			});
 
-			for(uint32_t i = 0; i < vp.dp_miplevels; i++)
-			{
-				cb.push_descriptor_set
-				({
-					.sampled_images =
-				       	{
-						{
-						.bindpoint = 0, 
-						.view = (i == 0) ? vp.zbuf->get_default_view() : vp.depth_pyramid->get_mip_view(i - 1), 
-						.sampler = dp_sampler,
-						.layout = (i == 0) ? vk::ImageLayout::eShaderReadOnlyOptimal : vk::ImageLayout::eGeneral
-						}
-					},
-					.storage_images =
+			cb.push_descriptor_set
+			({
+				.storage_image_arrays =
+				{
 					{
-						{1, vp.depth_pyramid->get_mip_view(i)},
-					}	
-				});
-
-				uint32_t level_width = std::max(vp.dp_width >> i, 1u);
-				uint32_t level_height = std::max(vp.dp_height >> i, 1u);
-				vec2 reduce_data{static_cast<float>(level_width), static_cast<float>(level_height)};
-
-				cb.push_constant(&reduce_data, sizeof(vec2));
-				cb.dispatch(vulkan::group_count(level_width, 32), vulkan::group_count(level_height, 32), 1);
-				cb.pipeline_barrier
-				({
-					{
-					.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
-					.src_access = vk::AccessFlagBits2::eShaderWrite | vk::AccessFlagBits2::eShaderRead,
-					.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
-					.dst_access = vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eShaderWrite,
-					.src_layout = vk::ImageLayout::eGeneral,
-					.dst_layout = vk::ImageLayout::eGeneral,
-					.image = vp.depth_pyramid.get(),
-					.subresource = {i, 1, 0, 1}
+					2,
+					array_proxy<vulkan::ImageView*>{vp.dp_layer_views.cbegin(), vp.dp_miplevels}
 					}
-				});
-			}
+				},
+				.separate_images = 
+				{
+					{
+					0,
+					vp.zbuf->get_default_view(),
+					vk::ImageLayout::eShaderReadOnlyOptimal
+					}
+				},
+				.samplers =
+				{
+					{
+					1,
+					dp_sampler
+					}
+				},
+				.storage_buffers =
+				{
+					{
+					3,
+					spd_globalatomic.get()
+					}
+				}
+			});
 
+
+			struct SPDpcb
+			{
+				vec2 inv_size;
+				uint32_t mips;
+				uint32_t numWorkGroups;
+				bool min_reduce;
+			} spd_pcb;
+				
+			auto res = vp.override_res != uvec2{0u} ? vp.override_res : vp.camera->get_res();
+
+			spd_pcb.inv_size = vec2{1.0f / float(res.x), 1.0f / float(res.y)};
+			spd_pcb.mips = vp.dp_miplevels,
+			spd_pcb.numWorkGroups = ((res.x - 1) / 64) + 1  * ((res.y - 1) / 64 + 1);
+			spd_pcb.min_reduce = true;
+			
+			cb.push_constant(&spd_pcb, sizeof(SPDpcb));
+
+			cb.dispatch((res.x - 1) / 64 + 1, (res.y - 1) / 64 + 1, 1);
+			
 			cb.pipeline_barrier
 			({
 				{
@@ -825,6 +824,17 @@ public:
 				.image = vp.zbuf
 				}
 			});
+
+			cb.pipeline_barrier
+			({
+				{
+				.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
+				.src_access = vk::AccessFlagBits2::eShaderWrite,
+				.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
+				.dst_access = vk::AccessFlagBits2::eShaderWrite,
+				.buffer = spd_globalatomic.get()
+				}
+			});	
 		}
 		device->end_perf_event(cb);
 		device->submit(cb);
@@ -1002,6 +1012,8 @@ private:
 
 	constexpr static uint32_t streambuf_size = 32 * 1024 * 1024;
 	vulkan::BufferHandle streambuf;
+
+	vulkan::BufferHandle spd_globalatomic;
 
 	vk::Sampler dp_sampler;
 	vk::Sampler dp_sampler_max;

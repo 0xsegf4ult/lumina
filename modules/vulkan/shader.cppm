@@ -66,11 +66,18 @@ void shader_reflect(Shader& stg, const std::vector<uint32_t>& spirv)
 		auto& type = spvcomp.get_type(r.type_id);
 
 		auto bindpoint = spvcomp.get_decoration(r.id, spv::DecorationBinding);
+		
+		dsl.binding_arraysize[bindpoint] = 1;
 		if(!type.array.empty())
 		{
-			if constexpr(dump_reflection_info)
-				log::debug("binding {} is variable size", bindpoint);
-			dsl.variable_bindings |= (1u << bindpoint);	
+			if(type.array[0] == 0)
+			{
+				if constexpr(dump_reflection_info)
+					log::debug("binding {} is variable size", bindpoint);
+				dsl.variable_bindings |= (1u << bindpoint);
+			}
+					
+			dsl.binding_arraysize[bindpoint] = type.array[0];
 		}
 
 		std::string dbg_s = "";
@@ -136,6 +143,24 @@ void shader_reflect(Shader& stg, const std::vector<uint32_t>& spirv)
 			stg.dsl_keys[set].storage_image_bindings |= (1u << bindpoint);
 			if constexpr(dump_reflection_info)
 				log::debug("binding {} is STORAGE_IMAGE", bindpoint);
+		}
+
+		for(const auto& si : res.separate_images)
+		{
+			auto set = spvcomp.get_decoration(si.id, spv::DecorationDescriptorSet);
+			auto bindpoint = emit_bindings(si, stg.dsl_keys[set]);
+			stg.dsl_keys[set].separate_image_bindings |= (1u << bindpoint);
+			if constexpr(dump_reflection_info)
+				log::debug("binding {} is SAMPLED_IMAGE", bindpoint);
+		}
+
+		for(const auto& s : res.separate_samplers)
+		{
+			auto set = spvcomp.get_decoration(s.id, spv::DecorationDescriptorSet);
+			auto bindpoint = emit_bindings(s, stg.dsl_keys[set]);
+			stg.dsl_keys[set].sampler_bindings |= (1u << bindpoint);
+			if constexpr(dump_reflection_info)
+				log::debug("binding {} is SAMPLER", bindpoint);
 		}
 	}
 }

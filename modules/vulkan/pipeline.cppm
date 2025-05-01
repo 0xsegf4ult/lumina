@@ -215,12 +215,17 @@ export PipelineLayoutKey build_pipe_layout(std::span<Shader*> shaders)
 
 			dst_dsl.sampled_image_bindings |= src_dsl.sampled_image_bindings;
 			dst_dsl.storage_image_bindings |= src_dsl.storage_image_bindings;
+			dst_dsl.separate_image_bindings |= src_dsl.separate_image_bindings;
+			dst_dsl.sampler_bindings |= src_dsl.sampler_bindings;
 			dst_dsl.uniform_buffer_bindings |= src_dsl.uniform_buffer_bindings;
 			dst_dsl.storage_buffer_bindings |= src_dsl.storage_buffer_bindings;
 			dst_dsl.vs_bindings |= src_dsl.vs_bindings;
 			dst_dsl.fs_bindings |= src_dsl.fs_bindings;
 			dst_dsl.cs_bindings |= src_dsl.cs_bindings;
 			dst_dsl.variable_bindings |= src_dsl.variable_bindings;
+
+			for(auto a = 0u; a < 16u; a++)
+				dst_dsl.binding_arraysize[a] = std::max(dst_dsl.binding_arraysize[a], src_dsl.binding_arraysize[a]);
 		}		
 	}
 

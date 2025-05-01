@@ -266,6 +266,7 @@ void CommandBuffer::push_descriptor_set(const DescriptorSetPush& set)
 
 	for(auto& si : set.sampled_images)
 	{
+		assert(num_imageinfo < 16);
 		image_info[num_imageinfo] =
 		{
 			.sampler = si.sampler,
@@ -286,10 +287,11 @@ void CommandBuffer::push_descriptor_set(const DescriptorSetPush& set)
 
 	for(auto& si : set.storage_images)
 	{
+		assert(num_imageinfo < 16);
 		image_info[num_imageinfo] =
 		{
 			.imageView = si.view->get_handle(),
-			.imageLayout = vk::ImageLayout::eGeneral
+			.imageLayout = si.layout
 		};
 
 		ds_writes[num_writes++] = 
@@ -297,6 +299,68 @@ void CommandBuffer::push_descriptor_set(const DescriptorSetPush& set)
 			.dstBinding = si.bindpoint,
 			.descriptorCount = 1,
 			.descriptorType = vk::DescriptorType::eStorageImage,
+			.pImageInfo = &image_info[num_imageinfo]
+		};
+
+		num_imageinfo++;
+	}
+
+	for(auto& sa : set.storage_image_arrays)
+	{
+		assert(num_imageinfo + sa.views.size() < 16);
+		for(auto i = 0u; i < sa.views.size(); i++)
+		{
+			image_info[num_imageinfo + i] =
+			{
+				.imageView = sa.views[i]->get_handle(),
+				.imageLayout = sa.layout
+			};
+		}
+
+		ds_writes[num_writes++] =
+		{
+			.dstBinding = sa.bindpoint,
+			.descriptorCount = static_cast<uint32_t>(sa.views.size()),
+			.descriptorType = vk::DescriptorType::eStorageImage,
+			.pImageInfo = &image_info[num_imageinfo]
+		};
+
+		num_imageinfo += sa.views.size();
+	}
+
+	for(auto& si : set.separate_images)
+	{
+		assert(num_imageinfo < 16);
+		image_info[num_imageinfo] =
+		{
+			.imageView = si.view->get_handle(),
+			.imageLayout = si.layout
+		};
+
+		ds_writes[num_writes++] =
+		{
+			.dstBinding = si.bindpoint,
+			.descriptorCount = 1,
+			.descriptorType = vk::DescriptorType::eSampledImage,
+			.pImageInfo = &image_info[num_imageinfo]
+		};
+
+		num_imageinfo++;
+	}
+
+	for(auto& s : set.samplers)
+	{
+		assert(num_imageinfo < 16);
+		image_info[num_imageinfo] =
+		{
+			.sampler = s.sampler
+		};
+
+		ds_writes[num_writes++] =
+		{
+			.dstBinding = s.bindpoint,
+			.descriptorCount = 1,
+			.descriptorType = vk::DescriptorType::eSampler,
 			.pImageInfo = &image_info[num_imageinfo]
 		};
 

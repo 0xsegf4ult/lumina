@@ -1,0 +1,282 @@
+// LICENSE
+// =======
+// Copyright (c) 2017-2020 Advanced Micro Devices, Inc. All rights reserved.
+// -------
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
+// files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
+// modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the
+// Software is furnished to do so, subject to the following conditions:
+// -------
+// The above copyright notice and this permission notice shall be included in all copies or substantial portions of the
+// Software.
+// -------
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+// WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR
+// COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+// ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+#version 460
+#extension GL_KHR_shader_subgroup_quad : require
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout (binding = 0) uniform texture2D inputRT;
+layout (binding = 1) uniform sampler reduction_sampler;
+layout (binding = 2, r32f) uniform coherent image2D outputRT[12];
+
+layout(std430, binding = 3) coherent buffer GlobalAtomic
+{
+	uint counter;
+} global_atomic;
+
+
+layout (push_constant) uniform block
+{
+	vec2 inv_size;
+	uint mips;
+	uint numWorkGroups;
+	bool min_reduce;
+};
+
+shared vec4 lds_data[16][16];
+shared uint atomic_counter;
+
+vec4 reduce_load4(uvec2 i0, uvec2 i1, uvec2 i2, uvec2 i3)
+{
+	vec4 v0 = imageLoad(outputRT[5], ivec2(i0));
+	vec4 v1 = imageLoad(outputRT[5], ivec2(i1));
+	vec4 v2 = imageLoad(outputRT[5], ivec2(i2));
+	vec4 v3 = imageLoad(outputRT[5], ivec2(i3));
+
+	return min_reduce ? min(min(v0, v1), min(v2, v3)) : max(max(v0, v1), max(v2, v3));
+}
+
+vec4 reduce_load4(uvec2 base)
+{
+	return reduce_load4(
+		uvec2(base + uvec2(0, 0)),
+		uvec2(base + uvec2(0, 1)),
+		uvec2(base + uvec2(1, 0)),
+		uvec2(base + uvec2(1, 1))
+	);
+}
+
+vec4 reduce_quad(vec4 v)
+{
+	vec4 v0 = v;
+	vec4 v1 = subgroupQuadSwapHorizontal(v);
+	vec4 v2 = subgroupQuadSwapVertical(v);
+	vec4 v3 = subgroupQuadSwapDiagonal(v);
+
+	return min_reduce ? min(min(v0, v1), min(v2, v3)) : max(max(v0, v1), max(v2, v3));
+}
+
+void downsample_mips_0_1(uint x, uint y, uvec2 wgID, uint invocation, uint mip)
+{
+	vec4 v[4];
+
+	ivec2 tex = ivec2(wgID * 64) + ivec2(x * 2, y * 2);
+	ivec2 pix = ivec2(wgID * 32) + ivec2(x, y);
+	v[0] = texture(sampler2D(inputRT, reduction_sampler), tex * inv_size + inv_size);
+	imageStore(outputRT[0], pix, v[0]);
+
+	tex = ivec2(wgID * 64) + ivec2(x * 2 + 32, y * 2);
+	pix = ivec2(wgID * 32) + ivec2(x + 16, y);
+	v[1] = texture(sampler2D(inputRT, reduction_sampler), tex * inv_size + inv_size);
+	imageStore(outputRT[0], pix, v[1]);
+
+	tex = ivec2(wgID * 64) + ivec2(x * 2, y * 2 + 32);
+	pix = ivec2(wgID * 32) + ivec2(x, y + 16);
+	v[2] = texture(sampler2D(inputRT, reduction_sampler), tex * inv_size + inv_size);
+	imageStore(outputRT[0], pix, v[2]);
+
+	tex = ivec2(wgID * 64) + ivec2(x * 2 + 32, y * 2 + 32);
+	pix = ivec2(wgID * 32) + ivec2(x + 16, y + 16);
+	v[3] = texture(sampler2D(inputRT, reduction_sampler), tex * inv_size + inv_size);
+	imageStore(outputRT[0], pix, v[3]);
+
+	if(mip <= 1)
+		return;
+
+	v[0] = reduce_quad(v[0]);
+	v[1] = reduce_quad(v[1]);
+	v[2] = reduce_quad(v[2]);
+	v[3] = reduce_quad(v[3]);
+
+	if(invocation % 4 == 0)
+	{
+		imageStore(outputRT[1], ivec2(wgID * 16) + ivec2(x / 2, y / 2), v[0]);
+		lds_data[x / 2][y / 2] = v[0];
+
+		imageStore(outputRT[1], ivec2(wgID * 16) + ivec2(x / 2 + 8, y / 2), v[1]);
+		lds_data[x / 2 + 8][y / 2] = v[1];
+
+		imageStore(outputRT[1], ivec2(wgID * 16) + ivec2(x / 2, y / 2 + 8), v[2]);
+		lds_data[x / 2][y / 2 + 8] = v[2];
+
+		imageStore(outputRT[1], ivec2(wgID * 16) + ivec2(x / 2 + 8, y / 2 + 8), v[3]);
+		lds_data[x / 2 + 8][y / 2 + 8] = v[3];
+	}
+}
+
+void downsample_mip2(uint x, uint y, uvec2 wgID, uint invocation, uint mip)
+{
+	vec4 v = lds_data[x][y];
+	v = reduce_quad(v);
+
+	if(invocation % 4 == 0)
+	{
+		imageStore(outputRT[mip], ivec2(wgID * 8) + ivec2(x / 2, y / 2), v);
+		lds_data[x + (y / 2) % 2][y] = v;
+	}
+}
+
+void downsample_mip3(uint x, uint y, uvec2 wgID, uint invocation, uint mip)
+{
+	if(invocation < 64)
+	{
+		vec4 v = lds_data[x * 2 + y % 2][y * 2];
+		v = reduce_quad(v);
+
+		if(invocation % 4 == 0)
+		{
+			imageStore(outputRT[mip], ivec2(wgID * 4) + ivec2(x / 2, y / 2), v);
+			lds_data[x * 2 + y / 2][y * 2] = v;
+		}
+	}
+}
+
+void downsample_mip4(uint x, uint y, uvec2 wgID, uint invocation, uint mip)
+{
+	if(invocation < 16)
+	{
+		vec4 v = lds_data[x * 4 + y][y * 4];
+		v = reduce_quad(v);
+
+		if(invocation % 4 == 0)
+		{
+			imageStore(outputRT[mip], ivec2(wgID * 2) + ivec2(x / 2, y / 2), v);
+			lds_data[x / 2 + y][0] = v;
+		}
+	}
+}
+
+
+void downsample_mip5(uvec2 wgID, uint invocation, uint mip)
+{
+	if(invocation < 4)
+	{
+		vec4 v = lds_data[invocation][0];
+		v = reduce_quad(v);
+
+		if(invocation % 4 == 0)
+			imageStore(outputRT[mip], ivec2(wgID), v);
+	}
+}
+
+void downsample_next_four(uint x, uint y, uvec2 wgID, uint invocation, uint baseMip, uint mips)
+{
+	if(mips <= baseMip) 
+		return;
+	
+	groupMemoryBarrier();
+	barrier();
+	downsample_mip2(x, y, wgID, invocation, baseMip);
+
+	if(mips <= baseMip + 1) 
+		return;
+
+	groupMemoryBarrier();
+	barrier();
+	downsample_mip3(x, y, wgID, invocation, baseMip + 1);
+
+	if(mips <= baseMip + 2)
+		return;
+
+	groupMemoryBarrier();
+	barrier();
+	downsample_mip4(x, y, wgID, invocation, baseMip + 2);
+
+	if(mips <= baseMip + 3)
+		return;
+
+	groupMemoryBarrier();
+	barrier();
+	downsample_mip5(wgID, invocation, baseMip + 3);
+}
+
+void downsample_mips_6_7(uint x, uint y, uint mips)
+{
+	ivec2 tex = ivec2(x * 4 + 0, y * 4 + 0);
+	ivec2 pix = ivec2(x * 2 + 0, y * 2 + 0);
+	
+	vec4 v0 = reduce_load4(tex);
+	imageStore(outputRT[6], pix, v0);
+
+	tex = ivec2(x * 4 + 2, y * 4 + 0);
+	pix = ivec2(x * 2 + 1, y * 2 + 0);
+	vec4 v1 = reduce_load4(tex);
+	imageStore(outputRT[6], pix, v1);
+
+	tex = ivec2(x * 4 + 0, y * 4 + 2);
+	pix = ivec2(x * 2 + 0, y * 2 + 1);
+	vec4 v2 = reduce_load4(tex);
+	imageStore(outputRT[6], pix, v2);
+
+	tex = ivec2(x * 4 + 2, y * 4 + 2);
+	pix = ivec2(x * 2 + 1, y * 2 + 1);
+	vec4 v3 = reduce_load4(tex);
+	imageStore(outputRT[6], pix, v3);
+
+	if (mips <= 7)
+		return;
+
+	vec4 v = min_reduce ? min(min(v0, v1), min(v2, v3)) : max(max(v0, v1), max(v2, v3));
+	imageStore(outputRT[7], ivec2(x, y), v);
+	lds_data[x][y] = v;
+}
+
+
+uvec2 remap_reduction_8x8(uint lane)
+{
+	return uvec2 (
+		bitfieldInsert(bitfieldExtract(lane, 2, 3), lane, 0, 1),
+		bitfieldInsert(bitfieldExtract(lane, 3, 3), bitfieldExtract(lane, 1, 2), 0, 2)
+	);
+}
+
+bool wg_exit_check(uint numWorkGroups, uint invocation)
+{
+	if(invocation == 0)
+	{
+		atomic_counter = atomicAdd(global_atomic.counter, 1);
+	}
+
+	groupMemoryBarrier();
+	barrier();
+	return (atomic_counter != (numWorkGroups - 1));
+}
+
+void main()
+{
+	uvec2 sub_xy = remap_reduction_8x8(gl_LocalInvocationIndex % 64);
+	uint x = sub_xy.x + 8 * ((gl_LocalInvocationIndex >> 6) % 2);
+	uint y = sub_xy.y + 8 * ((gl_LocalInvocationIndex >> 7));
+
+	downsample_mips_0_1(x, y, gl_WorkGroupID.xy, gl_LocalInvocationIndex, mips);
+
+	downsample_next_four(x, y, gl_WorkGroupID.xy, gl_LocalInvocationIndex, 2, mips);
+
+	if(mips <= 6)
+		return;
+	
+	if(wg_exit_check(numWorkGroups, gl_LocalInvocationIndex))
+		return;
+	
+	global_atomic.counter = 0;
+
+	downsample_mips_6_7(x, y, mips);
+
+	downsample_next_four(x, y, uvec2(0, 0), gl_LocalInvocationIndex, 8, mips);
+
+}

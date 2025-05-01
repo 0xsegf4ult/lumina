@@ -101,19 +101,28 @@ Device::Device(vk::Device _handle, vk::Instance owner, GPUInfo _gpu, DeviceFeatu
         sampler_ci.addressModeV = vk::SamplerAddressMode::eClampToEdge;
         sampler_ci.addressModeW = vk::SamplerAddressMode::eClampToEdge;
         sampler_prefabs[2] = handle.createSampler(sampler_ci);
-
-	sampler_ci.addressModeU = vk::SamplerAddressMode::eClampToBorder;
-	sampler_ci.addressModeV = vk::SamplerAddressMode::eClampToBorder;
-	sampler_ci.addressModeW = vk::SamplerAddressMode::eClampToBorder;
-	sampler_ci.borderColor = vk::BorderColor::eFloatOpaqueBlack;
+	
 	sampler_ci.magFilter = vk::Filter::eNearest;
 	sampler_ci.minFilter = vk::Filter::eNearest;
 	sampler_prefabs[3] = handle.createSampler(sampler_ci);
 
-	sampler_ci.borderColor = vk::BorderColor::eFloatOpaqueWhite;
 	sampler_ci.magFilter = vk::Filter::eLinear;
 	sampler_ci.minFilter = vk::Filter::eLinear;
+	sampler_ci.addressModeU = vk::SamplerAddressMode::eClampToBorder;
+	sampler_ci.addressModeV = vk::SamplerAddressMode::eClampToBorder;
+	sampler_ci.addressModeW = vk::SamplerAddressMode::eClampToBorder;
+	sampler_ci.borderColor = vk::BorderColor::eFloatOpaqueWhite;
+	sampler_ci.compareEnable = true;
+	sampler_ci.compareOp = vk::CompareOp::eLess;
 	sampler_prefabs[4] = handle.createSampler(sampler_ci);
+
+	sampler_ci.magFilter = vk::Filter::eNearest;
+	sampler_ci.minFilter = vk::Filter::eNearest;
+	sampler_ci.compareEnable = false;
+	sampler_ci.compareOp = vk::CompareOp::eAlways;
+	sampler_ci.magFilter = vk::Filter::eLinear;
+	sampler_ci.minFilter = vk::Filter::eLinear;
+	sampler_prefabs[5] = handle.createSampler(sampler_ci);
 
 	upload_buffer = create_buffer
 	({

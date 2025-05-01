@@ -1,5 +1,6 @@
 export module lumina.renderer:resource_format;
 
+import lumina.core.log;
 import lumina.core.math;
 import std;
 import vulkan_hpp;
@@ -239,7 +240,14 @@ constexpr float encode_tangent(const vec3& normal, const vec3& tangent, bool fli
 	else
 		fbits &= (~1u);
 
-	return std::bit_cast<float>(fbits);
+	float res = std::bit_cast<float>(fbits);
+	if(std::isnan(res))
+	{
+		log::warn("encode_tangent: tangent vector {} encoded as NaN!!!", tangent);
+		res = 0.0f;
+	}
+
+	return res;
 }
 
 template <typename Vtx>
