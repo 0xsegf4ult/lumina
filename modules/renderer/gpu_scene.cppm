@@ -40,10 +40,15 @@ export struct ViewportData
 {
 	Camera* camera{nullptr};
 	vulkan::Image* zbuf{nullptr};
+
+	vulkan::ImageHandle zbuf_remap{nullptr};
 	vulkan::ImageHandle depth_pyramid{nullptr};
 
 	uvec2 override_res{0};
 	uvec2 last_res{0};
+	
+	uint32_t map_width{0};
+	uint32_t map_height{0};
 	uint32_t dp_width{0};
 	uint32_t dp_height{0};
 	uint32_t dp_miplevels{0};
@@ -524,6 +529,16 @@ public:
 	void ready_culling()
 	{
 		ZoneScoped;
+		auto previous_pow2 = [](uint32_t v) -> uint32_t
+		{
+			uint32_t res = 1;
+			
+			while(res * 2 < v)
+				res *= 2;
+
+			return res;
+		};
+
 		auto dp_num_mips = [](uint32_t w, uint32_t h) -> uint32_t
 		{
 			uint32_t result = 1;
@@ -544,14 +559,25 @@ public:
 			{
 				assert(vp.camera);
 				auto res = vp.override_res != uvec2{0u} ? vp.override_res : vp.camera->get_res();
-			
-				vp.dp_width = res.x / 2;
-				vp.dp_height = res.y / 2;	
+		
+				vp.map_width = previous_pow2(res.x);
+				vp.map_height = previous_pow2(res.y);
+
+				vp.dp_width = previous_pow2(vp.map_width);
+				vp.dp_height = previous_pow2(vp.map_height);	
 				vp.dp_miplevels = dp_num_mips(vp.dp_width, vp.dp_height);
 
 				if(!vp.depth_pyramid || vp.last_res != res)
 				{
-					log::debug("recreating dpyr");
+					vp.zbuf_remap = device->create_image
+					({
+						.width = vp.map_width,
+						.height = vp.map_height,
+						.format = vk::Format::eR32Sfloat,
+						.usage = vulkan::ImageUsage::RWCompute,
+						.debug_name = std::format("remap::zbuf_{:#x}", reinterpret_cast<std::uint64_t>(vp.zbuf))
+					});
+	
 					vp.depth_pyramid = device->create_image
 					({
 						.width = vp.dp_width,
@@ -671,6 +697,7 @@ public:
 			{
 				cb.pipeline_barrier
 				({
+
 					{
 					.src_stage = vk::PipelineStageFlagBits2::eTopOfPipe,
 					.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
@@ -731,7 +758,7 @@ public:
 		auto cb = device->request_command_buffer(vulkan::Queue::Graphics, "gpu_scene::buildHZB");
 		device->start_perf_event("gpu_scene::buildHZB", cb);
 		cb.debug_name("gpu_scene::depthreduce");
-		cb.bind_pipeline({"depth_downsample_singlepass.comp"});
+		cb.bind_pipeline({"depthreduce.comp"});
 
 		for(auto& vp : viewports)
 		{
@@ -750,15 +777,74 @@ public:
 				.image = vp.zbuf
 				},
 				{
+				.src_stage = vk::PipelineStageFlagBits2::eTopOfPipe,
+				.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
+				.dst_access = vk::AccessFlagBits2::eShaderWrite,
+				.src_layout = vk::ImageLayout::eUndefined,
+				.dst_layout = vk::ImageLayout::eGeneral,
+				.image = vp.zbuf_remap.get()
+				}
+			});
+
+			cb.push_descriptor_set
+			({
+				.sampled_images =
+				{
+					{
+					0,
+					vp.zbuf->get_default_view(),
+					dp_sampler,
+					vk::ImageLayout::eShaderReadOnlyOptimal
+					}
+				},
+				.storage_images =
+				{
+					{1, vp.zbuf_remap->get_default_view()}
+				}
+			});
+
+			vec2 reduce_data{float(vp.map_width), float(vp.map_height)};
+
+			cb.push_constant(&reduce_data, sizeof(vec2));
+			cb.dispatch(vulkan::group_count(vp.map_width, 32), vulkan::group_count(vp.map_height, 32), 1);
+			cb.pipeline_barrier
+			({
+			 	{
 				.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
-				.src_access = vk::AccessFlagBits2::eShaderWrite | vk::AccessFlagBits2::eShaderRead,
+				.src_access = vk::AccessFlagBits2::eShaderWrite,
+				.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
+				.dst_access = vk::AccessFlagBits2::eShaderRead,
+				.src_layout = vk::ImageLayout::eGeneral,
+				.dst_layout = vk::ImageLayout::eGeneral,
+				.image = vp.zbuf_remap.get()
+				},
+				{
+				.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
+				.src_access = vk::AccessFlagBits2::eShaderRead,
 				.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
 				.dst_access = vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eShaderWrite,
 				.src_layout = vk::ImageLayout::eGeneral,
 				.dst_layout = vk::ImageLayout::eGeneral,
 				.image = vp.depth_pyramid.get()
+				},
+				{
+				.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
+				.src_access = vk::AccessFlagBits2::eShaderRead,
+				.dst_stage = vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests,
+				.dst_access = vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
+				.src_layout = vk::ImageLayout::eShaderReadOnlyOptimal,
+				.dst_layout = vk::ImageLayout::eDepthStencilAttachmentOptimal,
+				.image = vp.zbuf
 				}
 			});
+		}
+
+		cb.bind_pipeline({"depth_downsample_singlepass.comp"});
+
+		for(auto& vp : viewports)
+		{
+			if(!vp.zbuf || vp.needs_barrier)
+				continue;
 
 			cb.push_descriptor_set
 			({
@@ -773,8 +859,7 @@ public:
 				{
 					{
 					0,
-					vp.zbuf->get_default_view(),
-					vk::ImageLayout::eShaderReadOnlyOptimal
+					vp.zbuf_remap->get_default_view(),
 					}
 				},
 				.samplers =
@@ -802,26 +887,25 @@ public:
 				bool min_reduce;
 			} spd_pcb;
 				
-			auto res = vp.override_res != uvec2{0u} ? vp.override_res : vp.camera->get_res();
-
-			spd_pcb.inv_size = vec2{1.0f / float(res.x), 1.0f / float(res.y)};
+			spd_pcb.inv_size = vec2{1.0f / float(vp.map_width), 1.0f / float(vp.map_height)};
 			spd_pcb.mips = vp.dp_miplevels,
-			spd_pcb.numWorkGroups = ((res.x - 1) / 64) + 1  * ((res.y - 1) / 64 + 1);
+			spd_pcb.numWorkGroups = ((vp.map_width - 1) / 64) + 1  * ((vp.map_height - 1) / 64 + 1);
 			spd_pcb.min_reduce = true;
 			
 			cb.push_constant(&spd_pcb, sizeof(SPDpcb));
 
-			cb.dispatch((res.x - 1) / 64 + 1, (res.y - 1) / 64 + 1, 1);
+			cb.dispatch((vp.map_width - 1) / 64 + 1, (vp.map_height - 1) / 64 + 1, 1);
 			
 			cb.pipeline_barrier
 			({
 				{
 				.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
-				.dst_stage = vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests,
-				.dst_access = vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
-				.src_layout = vk::ImageLayout::eShaderReadOnlyOptimal,
-				.dst_layout = vk::ImageLayout::eDepthStencilAttachmentOptimal,
-				.image = vp.zbuf
+				.src_access = vk::AccessFlagBits2::eShaderWrite,
+				.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
+				.dst_access = vk::AccessFlagBits2::eShaderRead,
+				.src_layout = vk::ImageLayout::eGeneral,
+				.dst_layout = vk::ImageLayout::eGeneral,
+				.image = vp.depth_pyramid.get()
 				}
 			});
 
