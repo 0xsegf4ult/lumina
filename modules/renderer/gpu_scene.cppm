@@ -88,7 +88,6 @@ struct MeshPass
 
 	std::vector<Handle<RenderObject>> unbatched_objects;
 	std::vector<IndirectBatch> indirect_batches{};
-	std::vector<IndirectBatch> padded_indirect_batches{};
 	std::vector<Multibatch> multibatches{};
 
 	size_t multibatch_capacity = 32;
@@ -133,43 +132,21 @@ struct GPUObjectData
 
 struct GPUCullingData
 {
-	vec4 frustum_planes;
-	mat4 viewmat;
-	int frustum_cull{true};
-	int occlusion_cull{true};
-	float znear, zfar;
-	float p00, p11;
-	float pyr_w, pyr_h;
-	vec4 cam_pos;
-	float lod_base{10.0f};
-	float lod_step{1.5f};
-	int forced_lod{-1};
-	uint32_t global_draw_count;
-};
-
-struct GPUCullingDataOrtho
-{
 	vec4 frustum_planes[4];
 	mat4 viewmat;
-	vec4 cam_pos;
 	int frustum_cull{true};
 	int occlusion_cull{true};
 	float znear, zfar;
 	float p00, p11;
 	float pyr_w, pyr_h;
+	vec4 cam_pos;
 	float lod_base{10.0f};
 	float lod_step{1.5f};
 	int forced_lod{-1};
+	int is_ortho{0};
 	uint32_t global_draw_count;
 };
 
-}
-
-uint32_t align_up(uint32_t val, uint32_t size)
-{
-	auto mod{val % size};
-	val -= mod;
-	return mod == 0 ? val : val + size;
 }
 
 export namespace lumina::render
@@ -230,7 +207,7 @@ public:
 			}
 		};
 		dp_sampler = device->get_handle().createSampler(chain.get<vk::SamplerCreateInfo>());
-		
+
 		vk::StructureChain<vk::SamplerCreateInfo, vk::SamplerReductionModeCreateInfo> chain_max =
 		{
 			samplerci,
@@ -278,7 +255,7 @@ public:
 				.domain = vulkan::BufferDomain::Device,
 				.usage = vulkan::BufferUsage::IndirectBuffer,
 				.size = sizeof(GPUMultibatch) * pass.multibatch_capacity,
-				.debug_name = "gpu::multibatches::" + uid
+				.debug_name = "gpu_multibatches::" + uid
 			});
 
 			pass.gpu_buffers[i].indirect = device->create_buffer
@@ -301,7 +278,7 @@ public:
 			({
 				.domain = vulkan::BufferDomain::DeviceMapped,
 				.usage = vulkan::BufferUsage::StorageBuffer,
-				.size = desc.is_ortho ? sizeof(GPUCullingDataOrtho) : sizeof(GPUCullingData),
+				.size = sizeof(GPUCullingData),
 				.debug_name = "gpu_culldata::" + uid
 			});
 		}
@@ -369,12 +346,10 @@ public:
 
 		uint32_t batchID = static_cast<uint32_t>(batch - pass.multibatches.data());
 
-		cmd.vk_object().drawIndexedIndirectCount
+		cmd.vk_object().drawIndexedIndirect
 		(
 			pass.gpu_buffers[cmd.ctx_index].command->handle,
 			batch->first * sizeof(vk::DrawIndexedIndirectCommand),
-			pass.gpu_buffers[cmd.ctx_index].multibatch->handle,
-			batchID * sizeof(GPUMultibatch) + __builtin_offsetof(GPUMultibatch, draw_count),
 			batch->count,
 			sizeof(vk::DrawIndexedIndirectCommand)
 		);
@@ -466,16 +441,17 @@ public:
 			ZoneScopedN("copy_gpu_batches");
 
 			uint32_t multibuf_size = p.multibatches.size() * sizeof(GPUMultibatch);
-			uint32_t indbuf_size = p.padded_indirect_batches.size() * sizeof(GPUIndirectObject);
-			
+			uint32_t indbuf_size = p.indirect_batches.size() * sizeof(GPUIndirectObject);
+			uint32_t cmdbuf_size = p.indirect_batches.size() * sizeof(vk::DrawIndexedIndirectCommand);
+
 			if(!p.multibatches.empty())
 			{
 				for(auto i = 0ull; i < p.multibatches.size(); i++)
 				{
 					const Multibatch& batch = p.multibatches[i];
-					*(streambuf->map<GPUMultibatch>(streambuf_head) + i) = GPUMultibatch{batch.first, batch.count, 0, 0};
+					*(streambuf->map<GPUMultibatch>(streambuf_head) + i) = GPUMultibatch{batch.first, batch.count, 0};
 				}
-				
+
 				vk::BufferCopy region
 				{
 					.srcOffset = streambuf_head,
@@ -484,15 +460,12 @@ public:
 				};
 				cb.vk_object().copyBuffer(streambuf->handle, p.gpu_buffers[fidx].multibatch->handle, 1, &region);
 
-				streambuf_head += sizeof(GPUMultibatch) * p.multibatches.size();	
-				for(auto i = 0ull; i < p.padded_indirect_batches.size(); i++)
+				streambuf_head += sizeof(GPUMultibatch) * p.multibatches.size();
+				for(auto i = 0ull; i < p.indirect_batches.size(); i++)
 				{
-					const IndirectBatch& batch = p.padded_indirect_batches[i];
-					if(batch.object == 0)
-						continue;
-
+					const IndirectBatch& batch = p.indirect_batches[i];
 					const Mesh& mesh = mesh_registry->get(get_object(batch.object).mesh);
-					
+
 					*(streambuf->map<GPUIndirectObject>(streambuf_head) + i) = GPUIndirectObject
 					{
 						.lod0_offset = mesh.lod0_offset,
@@ -503,11 +476,32 @@ public:
 				}
 
 				region.srcOffset = streambuf_head;
-				region.size = sizeof(GPUIndirectObject) * p.padded_indirect_batches.size();
+				region.size = sizeof(GPUIndirectObject) * p.indirect_batches.size();
 				cb.vk_object().copyBuffer(streambuf->handle, p.gpu_buffers[fidx].indirect->handle, 1, &region);
 
-				streambuf_head += sizeof(GPUIndirectObject) * p.padded_indirect_batches.size();
+				streambuf_head += sizeof(GPUIndirectObject) * p.indirect_batches.size();
+
+				for(auto i = 0ull; i < p.indirect_batches.size(); i++)
+				{
+					const IndirectBatch& batch = p.indirect_batches[i];
+					*(streambuf->map<vk::DrawIndexedIndirectCommand>(streambuf_head) + i) = vk::DrawIndexedIndirectCommand
+					{
+						.indexCount = 0u,
+						.instanceCount = 0u,
+						.firstIndex = 0u,
+						.vertexOffset = 0,
+						.firstInstance = batch.object - 1
+					};
+				}
+
+				region.srcOffset = streambuf_head;
+				region.size = sizeof(vk::DrawIndexedIndirectCommand) * p.indirect_batches.size();
+				cb.vk_object().copyBuffer(streambuf->handle, p.gpu_buffers[fidx].command->handle, 1, &region);
+
+				streambuf_head += sizeof(vk::DrawIndexedIndirectCommand) * p.indirect_batches.size();
 			}
+
+
 
 			}
 		}
@@ -529,10 +523,11 @@ public:
 	void ready_culling()
 	{
 		ZoneScoped;
+
 		auto previous_pow2 = [](uint32_t v) -> uint32_t
 		{
 			uint32_t res = 1;
-			
+
 			while(res * 2 < v)
 				res *= 2;
 
@@ -559,12 +554,12 @@ public:
 			{
 				assert(vp.camera);
 				auto res = vp.override_res != uvec2{0u} ? vp.override_res : vp.camera->get_res();
-		
+
 				vp.map_width = previous_pow2(res.x);
 				vp.map_height = previous_pow2(res.y);
 
 				vp.dp_width = previous_pow2(vp.map_width);
-				vp.dp_height = previous_pow2(vp.map_height);	
+				vp.dp_height = previous_pow2(vp.map_height);
 				vp.dp_miplevels = dp_num_mips(vp.dp_width, vp.dp_height);
 
 				if(!vp.depth_pyramid || vp.last_res != res)
@@ -577,7 +572,7 @@ public:
 						.usage = vulkan::ImageUsage::RWCompute,
 						.debug_name = std::format("remap::zbuf_{:#x}", reinterpret_cast<std::uint64_t>(vp.zbuf))
 					});
-	
+
 					vp.depth_pyramid = device->create_image
 					({
 						.width = vp.dp_width,
@@ -594,10 +589,11 @@ public:
 					vp.last_res = res;
 
 					vp.needs_barrier = true;
-				}	
+				}
 			}
 		}
-	
+
+
 		for(auto& pass : passes)
 		{
 			if(pass.multibatches.empty())
@@ -609,95 +605,66 @@ public:
 			const ViewportData& vp = viewports[pass.viewport - 1];
 			assert(vp.camera);
 
+			auto* gcd = pass.gpu_buffers[device->current_frame_index()].culldata->map<GPUCullingData>();
+			gcd->frustum_cull = cd.frustum_cull;
+			gcd->occlusion_cull = cd.occlusion_cull;
+			gcd->forced_lod = cd.forced_lod;
+			gcd->lod_base = cd.lod_base;
+			gcd->lod_step = cd.lod_step;
+			
+			gcd->viewmat = vp.camera->get_view_matrix();
+			
+			vec2 cplanes = vp.camera->get_clip_planes();
+			gcd->znear = cplanes.x;
+			gcd->zfar = cplanes.y;
+
+			mat4 proj = vp.camera->get_projection_matrix();
+			mat4 projT = mat4::transpose(proj);
+
 			if(cd.is_ortho)
 			{
-				auto* gcd = pass.gpu_buffers[device->current_frame_index()].culldata->map<GPUCullingDataOrtho>();
-				gcd->frustum_cull = cd.frustum_cull;
-				gcd->occlusion_cull = cd.occlusion_cull;
-				gcd->forced_lod = cd.forced_lod;
-				gcd->lod_base = cd.lod_base;
-				gcd->lod_step = cd.lod_step;
-				
-				gcd->viewmat = vp.camera->get_view_matrix();
-				vec2 cplanes = vp.camera->get_clip_planes();
-				// set frustum planes
-				mat4 proj = vp.camera->get_projection_matrix();
-				mat4 projT = mat4::transpose(proj);
 				gcd->frustum_planes[0] = Plane(projT[3] + projT[0]).normalize().as_vector(); // x + w < 0
 				gcd->frustum_planes[1] = Plane(projT[3] - projT[0]).normalize().as_vector(); // x - w < 0
-				gcd->frustum_planes[2] = Plane(projT[3] + projT[1]).normalize().as_vector(); // y + w > 0
-				gcd->frustum_planes[3] = Plane(projT[3] - projT[1]).normalize().as_vector(); // y - w < 0
-				gcd->znear = cplanes.x;
-				gcd->zfar = cplanes.y;
-				gcd->p00 = proj[0][0];
-				gcd->p11 = proj[1][1];
-
-				gcd->pyr_w = static_cast<float>(vp.dp_width);
-				gcd->pyr_h = static_cast<float>(vp.dp_height);
-
-				gcd->cam_pos = vec4{vp.camera->get_pos(), 1.0f};
-				gcd->global_draw_count = static_cast<uint32_t>(pass.padded_indirect_batches.size());
+													     				gcd->frustum_planes[2] = Plane(projT[3] + projT[1]).normalize().as_vector(); // y + w > 0
+																										     				gcd->frustum_planes[3] = Plane(projT[3] - projT[1]).normalize().as_vector(); // y - w < 0
 			}
 			else
 			{
-				auto* gcd = pass.gpu_buffers[device->current_frame_index()].culldata->map<GPUCullingData>();
-				gcd->frustum_cull = cd.frustum_cull;
-				gcd->occlusion_cull = cd.occlusion_cull;
-				gcd->forced_lod = cd.forced_lod;
-				gcd->lod_base = cd.lod_base;
-				gcd->lod_step = cd.lod_step;
-
-				vec2 cplanes = vp.camera->get_clip_planes();
-				gcd->znear = cplanes.x;
-				gcd->zfar = cplanes.y;
-
-				gcd->viewmat = vp.camera->get_view_matrix();
-				
-				mat4 proj = vp.camera->get_projection_matrix();
-				mat4 projT = mat4::transpose(proj);
 				vec4 frustumX = Plane(projT[3] + projT[0]).normalize().as_vector();
 				vec4 frustumY = Plane(projT[3] + projT[1]).normalize().as_vector();
-
-				gcd->frustum_planes = vec4{frustumX.x, frustumX.z, frustumY.y, frustumY.z};
-
-				gcd->p00 = proj[0][0];
-				gcd->p11 = proj[1][1];
-
-				gcd->pyr_w = static_cast<float>(vp.dp_width);
-				gcd->pyr_h = static_cast<float>(vp.dp_height);
-
-				gcd->cam_pos = vec4{vp.camera->get_pos(), 1.0f};
-
-				gcd->global_draw_count = static_cast<uint32_t>(pass.padded_indirect_batches.size());
+				gcd->frustum_planes[0] = vec4{frustumX.x, frustumX.z, frustumY.y, frustumY.z};
 			}
+
+			gcd->p00 = proj[0][0];
+			gcd->p11 = proj[1][1];
+
+			gcd->pyr_w = static_cast<float>(vp.dp_width);
+			gcd->pyr_h = static_cast<float>(vp.dp_height);
+
+			gcd->cam_pos = vec4{vp.camera->get_pos(), 1.0f};
+			gcd->is_ortho = int(cd.is_ortho);
+			gcd->global_draw_count = static_cast<uint32_t>(pass.indirect_batches.size());
 		}
 	}
 
 	void execute_compute_cull()
 	{
 		ZoneScoped;
-		auto cb = device->request_command_buffer(vulkan::Queue::Graphics, "gpu_scene::cull");
-		cb.debug_name("gpu_scene::cull");
-		device->start_perf_event("gpu_scene::cull", cb);
-		//FIXME: sort by type and bind pipelines less
+		auto cmd = device->request_command_buffer(vulkan::Queue::Graphics, "gpu_scene::cull");
+		device->start_perf_event("gpu_scene::cull", cmd);
+
+		cmd.bind_pipeline({"cull.comp"});
+
 		for(auto& pass : passes)
 		{
 			if(pass.multibatches.empty())
-			{
 				continue;
-			}
-
-			if(pass.cull_data.is_ortho)
-				cb.bind_pipeline({"cull_ortho.comp"});
-			else
-				cb.bind_pipeline({"cull.comp"});
 
 			auto& vp = viewports[pass.viewport - 1];
 			if(vp.zbuf && vp.needs_barrier)
 			{
-				cb.pipeline_barrier
+				cmd.pipeline_barrier
 				({
-
 					{
 					.src_stage = vk::PipelineStageFlagBits2::eTopOfPipe,
 					.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
@@ -710,36 +677,41 @@ public:
 				vp.needs_barrier = false;
 			}
 
-			auto& gbuf = pass.gpu_buffers[cb.ctx_index];
+			auto& gbuf = pass.gpu_buffers[cmd.ctx_index];
 
-			cb.push_descriptor_set
+			cmd.push_descriptor_set
 			({
-				.storage_buffers = 
-	 			{
+				.storage_buffers =
+				{
 					{0, gbuf.indirect.get()},
 					{1, gbuf.command.get()},
 					{2, gbuf.multibatch.get()},
 					{3, gpu_object_buffer.get()},
 					{4, mesh_registry->get_lodbuffer()},
 					{5, gbuf.culldata.get()}
-				},
+				}
 			});
 
 			if(vp.zbuf)
 			{
-
-				cb.push_descriptor_set
+				cmd.push_descriptor_set
 				({
 					.sampled_images =
 					{
-						{6, vp.depth_pyramid->get_default_view(), pass.cull_data.is_ortho ? dp_sampler_max : dp_sampler, vk::ImageLayout::eGeneral}
+						{
+						6,
+						vp.depth_pyramid->get_default_view(),
+						pass.cull_data.is_ortho ? dp_sampler_max : dp_sampler,
+						vk::ImageLayout::eGeneral
+						}
 					}
 				});
 			}
 
-			cb.dispatch((static_cast<uint32_t>(pass.padded_indirect_batches.size()) / 32u) + 1u, 1u, 1u);
+			cmd.dispatch((static_cast<uint32_t>(pass.indirect_batches.size()) / 32u) + 1u, 1u, 1u);
 		}
-		cb.memory_barrier
+
+		cmd.memory_barrier
 		({
 			{
 			.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
@@ -748,24 +720,23 @@ public:
 			.dst_access = vk::AccessFlagBits2::eIndirectCommandRead
 			}
 		});
-		device->end_perf_event(cb);
-		device->submit(cb);
+		device->end_perf_event(cmd);
+		device->submit(cmd);
 	}
 
 	void build_depth_pyramid()
 	{
 		ZoneScoped;
-		auto cb = device->request_command_buffer(vulkan::Queue::Graphics, "gpu_scene::buildHZB");
-		device->start_perf_event("gpu_scene::buildHZB", cb);
-		cb.debug_name("gpu_scene::depthreduce");
-		cb.bind_pipeline({"depthreduce.comp"});
+		auto cmd = device->request_command_buffer(vulkan::Queue::Graphics, "gpu_scene::buildHZB");
+		device->start_perf_event("gpu_scene::buildHZB", cmd);
+		cmd.bind_pipeline({"depthreduce.comp"});
 
 		for(auto& vp : viewports)
 		{
 			if(!vp.zbuf || vp.needs_barrier)
 				continue;
 
-			cb.pipeline_barrier
+			cmd.pipeline_barrier
 			({
 			 	{
 				.src_stage = vk::PipelineStageFlagBits2::eLateFragmentTests,
@@ -786,7 +757,8 @@ public:
 				}
 			});
 
-			cb.push_descriptor_set
+
+			cmd.push_descriptor_set
 			({
 				.sampled_images =
 				{
@@ -805,9 +777,9 @@ public:
 
 			vec2 reduce_data{float(vp.map_width), float(vp.map_height)};
 
-			cb.push_constant(&reduce_data, sizeof(vec2));
-			cb.dispatch(vulkan::group_count(vp.map_width, 32), vulkan::group_count(vp.map_height, 32), 1);
-			cb.pipeline_barrier
+			cmd.push_constant(&reduce_data, sizeof(vec2));
+			cmd.dispatch(vulkan::group_count(vp.map_width, 32), vulkan::group_count(vp.map_height, 32), 1);
+			cmd.pipeline_barrier
 			({
 			 	{
 				.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
@@ -839,14 +811,14 @@ public:
 			});
 		}
 
-		cb.bind_pipeline({"depth_downsample_singlepass.comp"});
+		cmd.bind_pipeline({"depth_downsample_singlepass.comp"});
 
 		for(auto& vp : viewports)
 		{
 			if(!vp.zbuf || vp.needs_barrier)
 				continue;
 
-			cb.push_descriptor_set
+			cmd.push_descriptor_set
 			({
 				.storage_image_arrays =
 				{
@@ -855,7 +827,7 @@ public:
 					array_proxy<vulkan::ImageView*>{vp.dp_layer_views.cbegin(), vp.dp_miplevels}
 					}
 				},
-				.separate_images = 
+				.separate_images =
 				{
 					{
 					0,
@@ -878,7 +850,6 @@ public:
 				}
 			});
 
-
 			struct SPDpcb
 			{
 				vec2 inv_size;
@@ -886,17 +857,17 @@ public:
 				uint32_t numWorkGroups;
 				bool min_reduce;
 			} spd_pcb;
-				
+
 			spd_pcb.inv_size = vec2{1.0f / float(vp.map_width), 1.0f / float(vp.map_height)};
 			spd_pcb.mips = vp.dp_miplevels,
 			spd_pcb.numWorkGroups = ((vp.map_width - 1) / 64) + 1  * ((vp.map_height - 1) / 64 + 1);
 			spd_pcb.min_reduce = true;
-			
-			cb.push_constant(&spd_pcb, sizeof(SPDpcb));
 
-			cb.dispatch((vp.map_width - 1) / 64 + 1, (vp.map_height - 1) / 64 + 1, 1);
-			
-			cb.pipeline_barrier
+			cmd.push_constant(&spd_pcb, sizeof(SPDpcb));
+
+			cmd.dispatch((vp.map_width - 1) / 64 + 1, (vp.map_height - 1) / 64 + 1, 1);
+
+			cmd.pipeline_barrier
 			({
 				{
 				.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
@@ -909,7 +880,7 @@ public:
 				}
 			});
 
-			cb.pipeline_barrier
+			cmd.pipeline_barrier
 			({
 				{
 				.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
@@ -918,42 +889,42 @@ public:
 				.dst_access = vk::AccessFlagBits2::eShaderWrite,
 				.buffer = spd_globalatomic.get()
 				}
-			});	
+			});
 		}
-		device->end_perf_event(cb);
-		device->submit(cb);
+		device->end_perf_event(cmd);
+		device->submit(cmd);
 	}
 
 	void draw_ui()
 	{
 		int ctr = 0;
-		for(auto& pass : passes)
-		{
-			ImGui::PushID(ctr++);
-			
-			auto to_cstring = [](MeshPass::Type type) -> const char*
-			{
-				switch(type)
-				{
-				case MeshPass::Type::ForwardOpaque:
-					return "forwardOpaque";
-				case MeshPass::Type::ForwardTransparent:
-					return "forwardTransparent";
-				case MeshPass::Type::Shadowcast:
-					return "shadowcast";
-				default:
-					return "generic";
-				}
-			};
+                for(auto& pass : passes)
+                {
+                        ImGui::PushID(ctr++);
 
-			ImGui::Text("%s: unbatched %zu, cmd %zu, multibatch %zu", to_cstring(pass.type), pass.unbatched_objects.size(), pass.indirect_batches.size(), pass.multibatches.size());
-			ImGui::Checkbox("frustum culling", &pass.cull_data.frustum_cull);
-			ImGui::Checkbox("occlusion culling", &pass.cull_data.occlusion_cull);
-			ImGui::SliderInt("forced lod", &pass.cull_data.forced_lod, -1, 4);
-			ImGui::DragFloat("lod base", &pass.cull_data.lod_base, 0.01f, 0.0f, 10.0f);
-			ImGui::DragFloat("lod step", &pass.cull_data.lod_step, 0.01f, 0.0f, 5.0f);
-			ImGui::PopID();
-		}
+                        auto to_cstring = [](MeshPass::Type type) -> const char*
+                        {
+                                switch(type)
+                                {
+                                case MeshPass::Type::ForwardOpaque:
+                                        return "forwardOpaque";
+                                case MeshPass::Type::ForwardTransparent:
+                                        return "forwardTransparent";
+                                case MeshPass::Type::Shadowcast:
+                                        return "shadowcast";
+                                default:
+                                        return "generic";
+                                }
+                        };
+
+                        ImGui::Text("%s: unbatched %zu, cmd %zu, multibatch %zu", to_cstring(pass.type), pass.unbatched_objects.size(), pass.indirect_batches.size(), pass.multibatches.size());
+                        ImGui::Checkbox("frustum culling", &pass.cull_data.frustum_cull);
+                        ImGui::Checkbox("occlusion culling", &pass.cull_data.occlusion_cull);
+                        ImGui::SliderInt("forced lod", &pass.cull_data.forced_lod, -1, 4);
+                        ImGui::DragFloat("lod base", &pass.cull_data.lod_base, 0.01f, 0.0f, 10.0f);
+                        ImGui::DragFloat("lod step", &pass.cull_data.lod_step, 0.01f, 0.0f, 5.0f);
+                        ImGui::PopID();
+                }
 	}
 private:
 	MeshPass& get_pass(Handle<MeshPass> mp)
@@ -975,7 +946,7 @@ private:
 
 				auto& obj = get_object(handle);
 
-				uint64_t meshmat = uint64_t(obj.material >> 32) ^ uint64_t(obj.mesh);
+				uint64_t meshmat = uint64_t(obj.material) ^ uint64_t(obj.mesh);
 
 				cmd.sort_key = meshmat | (uint64_t(obj.custom_key) << 32);
 				new_batches.push_back(cmd);
@@ -1028,8 +999,7 @@ private:
 				nb.count = 1;
 				nb.pipeline = Handle<MaterialTemplate>{static_cast<uint32_t>(get_object(pass.indirect_batches[0].object).material >> 32)};
 
-				uint32_t bctr = 0;
-				pass.indirect_batches[0].batch = bctr;
+				pass.indirect_batches[0].batch = 0;
 
 				for(uint32_t i = 1; i < pass.indirect_batches.size(); i++)
 				{
@@ -1043,7 +1013,6 @@ private:
 
 					if(!same_pipe)
 					{
-						bctr++;
 						pass.multibatches.push_back(nb);
 						nb.first = i;
 						nb.count = 1;
@@ -1054,29 +1023,9 @@ private:
 						nb.count++;
 					}
 					
-					batch->batch = static_cast<uint32_t>(bctr);
+					batch->batch = static_cast<uint32_t>(pass.multibatches.size());
 				}
 				pass.multibatches.push_back(nb);
-
-				pass.padded_indirect_batches.clear();
-				const Multibatch& last = pass.multibatches.back(); 
-
-				// start of each multibatch needs to be aligned with subgroup size
-				// since we write multibatch draw_count for an entire wave from the first thread
-				// and we need to avoid diverging multibatch id within a wave
-
-				uint32_t count = 0;
-				for(auto& mb : pass.multibatches)
-				{
-					for(uint32_t i = mb.first; i < mb.first + mb.count; i++)
-						pass.padded_indirect_batches.push_back(pass.indirect_batches[i]);
-
-					for(uint32_t i = mb.first + mb.count; i < align_up(mb.first + mb.count, 32); i++)
-						pass.padded_indirect_batches.push_back({});
-				
-					mb.first = align_up(count, 32);
-					count += mb.count;
-				}
 			}
 		}
 	}
@@ -1094,7 +1043,7 @@ private:
 	uint32_t gpu_object_head = 0;
 	vulkan::BufferHandle gpu_object_buffer;
 
-	constexpr static uint32_t streambuf_size = 32 * 1024 * 1024;
+	constexpr static uint32_t streambuf_size = 64 * 1024 * 1024;
 	vulkan::BufferHandle streambuf;
 
 	vulkan::BufferHandle spd_globalatomic;

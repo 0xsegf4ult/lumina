@@ -34,7 +34,7 @@ layout(std430, binding = 4) readonly buffer MeshLODBuffer
 
 layout(std430, binding = 5) buffer CullingBuffer
 {
-	vec4 frustum_planes;
+	vec4 frustum_planes[4];
 	mat4 viewmat;
 	int frustum_cull;
 	int occlusion_cull;
@@ -44,10 +44,11 @@ layout(std430, binding = 5) buffer CullingBuffer
 	float lod_base;
 	float lod_step;
 	int forced_lod;
+	int is_ortho;
 	uint global_draw_count;
 } culling_data;
 
-layout(binding = 6) uniform sampler2D depthPyramid;
+layout (binding = 6) uniform sampler2D depthPyramid;
 
 bool projectSphere(vec3 c, float r, float znear, float p00, float p11, out vec4 aabb)
 {
@@ -72,19 +73,28 @@ bool projectSphere(vec3 c, float r, float znear, float p00, float p11, out vec4 
 bool is_visible(uint id)
 {
 	bool visible = true;
-
 	vec4 osphere = gpu_objects[gpu_indirect_objects[id].object].sphere;
 	vec3 center = (culling_data.viewmat * vec4(osphere.xyz, 1.0f)).xyz;
 	float radius = osphere.w;
 
+	bool isOrtho = (culling_data.is_ortho == 1);
+
 	bool frustumCullingEnabled = (culling_data.frustum_cull == 1);
 	if(subgroupAny(frustumCullingEnabled))
 	{
-		visible = visible && center.z * culling_data.frustum_planes.y - abs(center.x) * culling_data.frustum_planes.x > -radius;
-		visible = visible && center.z * culling_data.frustum_planes.w - abs(center.y) * culling_data.frustum_planes.z > -radius;
-		visible = visible && -center.z + radius > culling_data.znear && -center.z - radius < culling_data.zfar;
+		if(subgroupAny(isOrtho))
+		{
+			for(uint i = 0; i < 4; ++i)
+				visible = visible && dot(culling_data.frustum_planes[i], vec4(center, 1.0f)) > -radius;
+		}
+		else
+		{
+			visible = visible && center.z * culling_data.frustum_planes[0].y - abs(center.x) * culling_data.frustum_planes[0].x > -radius;
+			visible = visible && center.z * culling_data.frustum_planes[0].w - abs(center.y) * culling_data.frustum_planes[0].z > -radius;
+			visible = visible && -center.z + radius > culling_data.znear && -center.z - radius < culling_data.zfar;
+		}
 	}
-
+	
 	bool occlusionCullingEnabled = (culling_data.occlusion_cull == 1);
 	if(subgroupAny(occlusionCullingEnabled))
 	{
@@ -104,11 +114,9 @@ bool is_visible(uint id)
 			}
 		}
 	}
-
+	
 	return visible;
 }
-
-shared uint drawOffset;
 
 void main()
 {
@@ -119,15 +127,6 @@ void main()
 	if(gID < multibatches[batchID].first + multibatches[batchID].count)
 	{
 		bool visible = is_visible(gID);
-		uvec4 visibleBallot = subgroupBallot(visible);
-
-		if(groupThreadIndex == 0)
-		{
-			uint drawCount = subgroupBallotBitCount(visibleBallot);
-			drawOffset = atomicAdd(multibatches[batchID].draw_count, drawCount);
-		}
-
-		subgroupMemoryBarrierShared();
 
 		if(visible)
 		{
@@ -140,16 +139,10 @@ void main()
 
 			MeshLOD lod = lods[gpu_indirect_objects[gID].lod0_offset + lodIndex];
 
-			IndirectCommand cmd;
-			cmd.index_count = lod.index_count;
-			cmd.instance_count = 1;
-			cmd.index_offset = lod.index_offset;
-			cmd.vertex_offset = lod.vertex_offset;
-			cmd.instance_id = gpu_indirect_objects[gID].object;
-			
-			uint visibleIndex = subgroupBallotExclusiveBitCount(visibleBallot);
-			uint commandIndex = drawOffset + visibleIndex + multibatches[batchID].first;
-			indirect_commands[commandIndex] = cmd;
+			indirect_commands[gID].index_count = lod.index_count;
+			indirect_commands[gID].instance_count = 1;
+			indirect_commands[gID].index_offset = lod.index_offset;
+			indirect_commands[gID].vertex_offset = lod.vertex_offset;
 		}
 
 	}
