@@ -4,7 +4,7 @@ module;
 #include <cassert>
 #include <tracy/Tracy.hpp>
 
-module lumina.vulkan:impl_device;
+module lumina.vulkan;
 
 import :device;
 import :queues;
@@ -262,11 +262,19 @@ uint64_t Device::current_frame_index(Queue queue) const
 BufferHandle Device::create_buffer(const BufferKey& key)
 {
 	ZoneScoped;
+
+	std::array<uint32_t, 3> indices;
+	indices[0] = queues[0].index;
+	indices[1] = queues[1].index;
+	indices[2] = queues[2].index;
+
         vk::Buffer buf = handle.createBuffer
         ({
                 .size = key.size,
                 .usage = decode_buffer_usage(key.usage),
-                .sharingMode = vk::SharingMode::eExclusive
+                .sharingMode = key.concurrent_access ? vk::SharingMode::eConcurrent : vk::SharingMode::eExclusive,
+		.queueFamilyIndexCount =  key.concurrent_access ? 3u : 0u,
+		.pQueueFamilyIndices = key.concurrent_access ? indices.data() : nullptr
         });
         set_object_name(buf, key.debug_name);
 

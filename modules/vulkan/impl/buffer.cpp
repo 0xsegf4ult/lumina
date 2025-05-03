@@ -1,4 +1,4 @@
-module lumina.vulkan:impl_buffer;
+module lumina.vulkan;
 
 import :device;
 import :buffer;

@@ -21,7 +21,7 @@ export struct __attribute__((packed)) job_t
 	std::byte padding[job_padding_size];
 };
 
-thread_local uint32_t current_thread_id = ~0u;
+static thread_local uint32_t current_thread_id = ~0u;
 
 export uint32_t get_thread_id()
 {
@@ -29,8 +29,8 @@ export uint32_t get_thread_id()
 }
 
 constexpr size_t max_concurrent_jobs = 16384;
-thread_local job_t* g_jobAllocator;
-thread_local uint64_t g_allocCounter = 0u;
+static thread_local job_t* g_jobAllocator;
+static thread_local uint64_t g_allocCounter = 0u;
 
 job_t* allocate_job()
 {

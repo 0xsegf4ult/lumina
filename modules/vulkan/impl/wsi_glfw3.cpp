@@ -3,7 +3,7 @@ module;
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
-export module lumina.vulkan:impl_wsi_glfw3;
+module lumina.vulkan;
 
 import :wsi;
 

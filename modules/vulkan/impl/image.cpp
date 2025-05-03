@@ -1,4 +1,4 @@
-module lumina.vulkan:impl_image;
+module lumina.vulkan;
 
 import :device;
 import :image;

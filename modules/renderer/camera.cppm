@@ -53,12 +53,12 @@ public:
 		vec3 up{vector_world_up};
 	};
 
-	mat4 get_view_matrix() const
+	constexpr mat4 get_view_matrix() const
 	{
 		return mat4::make_translation(-1.0f * pos) * mat4::make_rotY(yaw) * mat4::make_rotX(pitch);
 	}
 
-	mat4 get_projection_matrix() const
+	constexpr mat4 get_projection_matrix() const
 	{
 		if(proj == CameraProjection::Perspective)
 		{
@@ -81,7 +81,7 @@ public:
 		}
 	}
 
-	mat4 get_persp_mtx_farplane() const
+	constexpr mat4 get_persp_mtx_farplane() const
 	{
 		const float focal_length = 1.0f / std::tan(fov / 2.0f);
 		const float aspect_ratio = width / height;

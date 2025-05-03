@@ -824,7 +824,7 @@ public:
 				{
 					{
 					2,
-					array_proxy<vulkan::ImageView*>{vp.dp_layer_views.cbegin(), vp.dp_miplevels}
+					array_proxy<vulkan::ImageView*>{vp.dp_layer_views.data(), vp.dp_miplevels}
 					}
 				},
 				.separate_images =

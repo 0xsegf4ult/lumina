@@ -2,7 +2,7 @@ module;
 
 #include <cassert>
 
-export module lumina.vulkan:impl_command_buffer;
+module lumina.vulkan;
 
 import :command_buffer;
 import :device;

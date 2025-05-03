@@ -41,12 +41,12 @@ target_sources(lumina_vulkan PUBLIC FILE_SET CXX_MODULES
 	pipeline.cppm
 	shader.cppm
 	wsi.cppm
-	impl/device.cppm
-	impl/buffer.cppm
-	impl/image.cppm
-	impl/command_buffer.cppm
-	impl/wsi_glfw3.cppm
 	PRIVATE
+	impl/device.cpp
+	impl/buffer.cpp
+	impl/image.cpp
+	impl/command_buffer.cpp
+	impl/wsi_glfw3.cpp
 	dispatch.cpp)
 	
 
