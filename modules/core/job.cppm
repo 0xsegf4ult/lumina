@@ -9,8 +9,10 @@ using std::size_t, std::uint32_t, std::uint64_t;
 namespace lumina::job
 {
 
-constexpr size_t cache_line_size = 64u;
-constexpr size_t job_padding_size = cache_line_size - sizeof(std::function<void()>) - sizeof(void*) - sizeof(uint32_t) - sizeof(bool); 
+#if defined(__clang__) || defined(__GNUC__) || defined(__GNUG__)
+
+constexpr std::int64_t cache_line_size = 64;
+constexpr std::int64_t job_padding_size = cache_line_size - std::int64_t(sizeof(std::function<void()>) + sizeof(void*) + sizeof(uint32_t) + sizeof(bool)); 
 
 export struct __attribute__((packed)) job_t
 {
@@ -20,6 +22,17 @@ export struct __attribute__((packed)) job_t
 	std::atomic<bool> finished{true};
 	std::byte padding[job_padding_size];
 };
+#elif defined(_MSC_VER)
+#pragma pack(push, 1)
+export struct job_t
+{
+	std::function<void()> func{};
+	job_t* parent{nullptr};
+	std::atomic<uint32_t> jobs_running{0u};
+	std::atomic<bool> finished{true};
+};
+#pragma pack(pop)
+#endif
 
 static thread_local uint32_t current_thread_id = ~0u;
 
@@ -146,8 +159,12 @@ void init(uint32_t concurrency = 0)
 		concurrency = std::thread::hardware_concurrency();
 
 	log::info("job_system: running on {} threads", concurrency);
+
+	#if defined(__clang__) || defined(__GNUC__) || defined(__GNUG__)
 	log::info("job_system: cache line {} bytes, expanding job_t by {} bytes", cache_line_size, job_padding_size);
-       	ctx->num_threads = concurrency - 1;
+	#endif
+
+	ctx->num_threads = concurrency - 1;
 	ctx->threads = std::make_unique_for_overwrite<ThreadInfo[]>(ctx->num_threads);	
 
 	current_thread_id = 0;

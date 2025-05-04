@@ -9,7 +9,8 @@ namespace lumina::fnv
 	constexpr uint32_t prime = 0x1000193u;
 	constexpr uint32_t basis = 0x811C9DC5u;
 
-	constexpr size_t strlen_nonull(const char* str)
+	template <typename CharT>
+	constexpr size_t strlen_nonull(const CharT* str)
 	{
 		size_t out = 0;
 		while(str[++out] != '\0');
@@ -20,7 +21,8 @@ namespace lumina::fnv
 
 export namespace lumina::fnv
 {
-	constexpr uint32_t hash(const char* str)
+	template <typename CharT>
+	constexpr uint32_t hash(const CharT* str)
 	{
 		uint32_t out = basis;
 		size_t len = strlen_nonull(str);
@@ -30,7 +32,7 @@ export namespace lumina::fnv
 
 		return out;
 	}
-
+	
 	constexpr uint32_t operator""_fnv(const char* str)
 	{
 		return fnv::hash(str);

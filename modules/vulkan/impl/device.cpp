@@ -482,9 +482,7 @@ void Device::submit(CommandBuffer& cmd)
 {
 	ZoneScoped;
 	assert(cmd.thread == job::get_thread_id());
-	assert(cmd.dbg_state == CommandBuffer::DebugState::Recording);
 	cmd.vk_object().end();
-	cmd.dbg_state = CommandBuffer::DebugState::Submitted; 
 
 	auto& queue = queues[static_cast<size_t>(cmd.queue)];
 
@@ -557,7 +555,6 @@ void Device::submit_queue_nolock(Queue queue, uint64_t* sig_timeline)
 		if(cmd.ctx_index != fidx)
 			log::warn("submit_queue: command buffer exists across frame boundaries");
 
-		assert(cmd.dbg_state == CommandBuffer::DebugState::Submitted);
 		auto wsi_stages = cmd.requires_wsi_sync();
 		auto batch = &qd.batch_data[cur_batch];
 
@@ -743,6 +740,7 @@ void Device::advance_timeline(Queue queue)
 
 	if(queue == Queue::Graphics)
 	{
+		// FIXME: redesign CPU -> GPU sync as this causes a ~1ms wait when enabled
 		if constexpr(perf_events_enabled)
 		{
 			ZoneScopedN("collect_perf_events");

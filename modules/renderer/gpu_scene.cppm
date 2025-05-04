@@ -366,7 +366,6 @@ public:
 			ZoneScopedN("copy_gpu_objects");
 			auto cb = device->request_command_buffer(vulkan::Queue::Graphics, "gpu_scene::ready_objects");
 			device->start_perf_event("gpu_scene::ready_objects", cb);
-			cb.debug_name("gpu_scene::ready_objects");
 			{
 				for(auto& [handle, processed]: dirty_objects)
 				{
@@ -428,7 +427,6 @@ public:
 		streambuf_head = 0;
 
 		auto cb = device->request_command_buffer(vulkan::Queue::Graphics, "gpu_scene::refresh_passes");
-		cb.debug_name("gpu_scene::refresh_passes");
 		device->start_perf_event("gpu_scene::refresh_passes", cb);
 
 		auto fidx = device->current_frame_index();

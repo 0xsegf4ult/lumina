@@ -110,8 +110,6 @@ class Context
 public:
 	Context(const std::vector<const char*>& layers, const std::vector<const char*>& extensions)
 	{
-		//vk::DynamicLoader dl;
-		//PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
 		VULKAN_HPP_DEFAULT_DISPATCHER.init();
 
 		vk::ApplicationInfo app_info

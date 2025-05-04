@@ -160,7 +160,7 @@ constexpr float signNotZero(float v)
 	return (v >= 0.0f) ? 1.0f : -1.0f;
 }
 
-constexpr vec3 oct_snorm_to_vec3(const Vector<uint16_t, 2>& input)
+vec3 oct_snorm_to_vec3(const Vector<uint16_t, 2>& input)
 {
 	auto float_cast = [](uint16_t s)
 	{
@@ -182,7 +182,7 @@ constexpr vec3 oct_snorm_to_vec3(const Vector<uint16_t, 2>& input)
 	return v;
 }
 
-constexpr Vector<uint16_t, 2> vec3_to_oct_snorm(const vec3& input, [[maybe_unused]]bool highp = false)
+Vector<uint16_t, 2> vec3_to_oct_snorm(const vec3& input, [[maybe_unused]]bool highp = false)
 {
 	Vector<uint16_t, 2> projected;
 
@@ -207,7 +207,7 @@ constexpr Vector<uint16_t, 2> vec3_to_oct_snorm(const vec3& input, [[maybe_unuse
 	return projected;
 }
 
-constexpr float encode_diamond(const vec2& p)
+float encode_diamond(const vec2& p)
 {
 	float x = p.x / (std::abs(p.x) + std::abs(p.y));
 
@@ -220,7 +220,7 @@ constexpr float encode_diamond(const vec2& p)
 	return -py_sign * 0.25f * x + 0.5f + py_sign * 0.25f;
 }
 
-constexpr float encode_tangent(const vec3& normal, const vec3& tangent, bool flip)
+float encode_tangent(const vec3& normal, const vec3& tangent, bool flip)
 {
 	vec3 t1;
 	if(std::abs(normal.y) > std::abs(normal.z))

@@ -385,7 +385,7 @@ constexpr auto operator*(const Vector<T, M, std::index_sequence<Is...>>& v, cons
 }
 
 template <typename T, typename U, size_t M, size_t N, size_t P>
-inline auto operator*(const Matrix<T, M, N>& lhs, const Matrix<U, N, P>& rhs) noexcept
+constexpr auto operator*(const Matrix<T, M, N>& lhs, const Matrix<U, N, P>& rhs) noexcept
 {
 	Matrix<T, M, P> res;
 	for(size_t r = 0; r < M; r++)

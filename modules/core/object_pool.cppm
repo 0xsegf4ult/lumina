@@ -5,6 +5,9 @@ module;
 #include <cerrno>
 #include <cstring>
 #elif defined LUMINA_PLATFORM_WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
 #include <memoryapi.h>
 #endif
 
@@ -136,7 +139,7 @@ private:
 	{
 		//FIXME: test on win32
 		#if defined LUMINA_PLATFORM_WIN32
-		num_allocations = std::max(num_allocations, index + 1);
+		num_allocations = std::max(num_allocations.load(), index + 1);
 		VirtualAlloc(objects, sizeof(InternalObject) * num_allocations, MEM_COMMIT, PAGE_READWRITE);
 		#endif
 

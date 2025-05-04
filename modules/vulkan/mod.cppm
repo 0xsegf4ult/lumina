@@ -1,5 +1,3 @@
-module;
-
 export module lumina.vulkan;
 export import :buffer;
 export import :context;
@@ -15,3 +13,4 @@ export namespace lumina::vulkan
 {
 
 }
+

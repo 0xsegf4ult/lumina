@@ -1,5 +1,5 @@
 {
-	"version": 10,
+	"version": 5,
 	"configurePresets": [
 	{
 		"name": "default",
@@ -10,7 +10,7 @@
 		}
 	},
 	{
-		"name": "msvc",
+		"name": "windows-default",
 		"generator": "Ninja",
 		"binaryDir": "${sourceDir}/build",
 		"toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",

@@ -63,14 +63,8 @@ inline float ray_test_aabb(vec3 origin, vec3 inv_dir, AABB box)
 	return tmin <= tmax ? tmin : t;	
 }
 
-//FIXME: check vectorization on gcc
-// clang compiles with AVX instructions on march=znver2
 inline vec4 ray_test_aabb_simd4(const vec3& origin, const vec3& inv_dir, const SIMD4AABB& boxes)
 {
-	asm volatile("nop");
-	asm volatile("nop");
-	asm volatile("nop");
-	asm volatile("nop");
 	vec4 tmin{0.0f};
 	vec4 tmax{std::numeric_limits<float>::infinity()};
 
@@ -105,24 +99,11 @@ inline vec4 ray_test_aabb_simd4(const vec3& origin, const vec3& inv_dir, const S
 	vec4 t;
 	memcpy(&t[0], &r_t, 16);
 
-	/*
-	for(uint32_t i = 0; i < 4; i++)
-		t[i] = tmin[i] <= tmax[i] ? tmin[i] : t[i];
-*/
-	asm volatile("nop");
-	asm volatile("nop");
-	asm volatile("nop");
-	asm volatile("nop");
 	return t;
 }
 
 inline uvec4 aabb_test_aabb_simd4(const AABB& aabb, const SIMD4AABB& boxes)
 {
-	asm volatile("nop");
-	asm volatile("nop");
-	asm volatile("nop");
-	asm volatile("nop");
-
 	__m128 lhsminx = _mm_set1_ps(aabb.mins.x);
 	__m128 lhsminy = _mm_set1_ps(aabb.mins.y);
 	__m128 lhsminz = _mm_set1_ps(aabb.mins.z);
@@ -150,10 +131,6 @@ inline uvec4 aabb_test_aabb_simd4(const AABB& aabb, const SIMD4AABB& boxes)
 	__m128i r_res = _mm_and_si128(_mm_and_si128(intersectx, intersecty), intersectz);
 	uvec4 res;
 	memcpy(&res[0], &r_res, 16);
-	asm volatile("nop");
-	asm volatile("nop");
-	asm volatile("nop");
-	asm volatile("nop");
 	return res;
 }
 

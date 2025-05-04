@@ -218,7 +218,7 @@ public:
 					.layers = num_layers,
 					.format = TextureFileFormat::to_vkformat(header->texformat),
 					.usage = vulkan::ImageUsage::ShaderRead,
-					.debug_name = entry.path
+					.debug_name = entry.path.string()
 				});
 				to_update.push_back(Handle<Texture>{entry.promised_handle});
 				memcpy(streambuf->map<std::byte>() + used, ptr + res_table[0].data_offset, tex_size);
@@ -312,7 +312,6 @@ public:
 			}
 		}
 		log::debug("texture_registry: pre gfx queue submit");
-		assert(gcb.dbg_state == vulkan::CommandBuffer::DebugState::Recording);
 		auto gtv = device->submit(gcb, vulkan::submit_signal_timeline);
 		log::debug("texture_registry: post gfx queue submit");
 		device->wait_timeline(vulkan::Queue::Graphics, gtv);

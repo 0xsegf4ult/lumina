@@ -201,7 +201,7 @@ public:
 
 		Mesh l_mesh
 		{
-			.name = path.filename(),
+			.name = path.filename().string(),
 			.bounds = {header->sphere, header->aabb},
 			.lod_count = header->num_lods,
 			.lod0_offset = lod0_offset
@@ -258,7 +258,7 @@ public:
 
 		SkinnedMesh l_mesh
 		{
-			.name = path.filename(),
+			.name = path.filename().string(),
 			.bounds = {header->sphere, header->aabb},
 			.ssbo_vertex_offset = vertex_offset + static_cast<int32_t>(lod_table[0].vertex_offset), 
 			.vertex_count = lod_table[0].vertex_count,
@@ -601,7 +601,6 @@ public:
 		}
 		
 		log::debug("mesh_registry: pre gfx queue submit");
-		assert(gcb.dbg_state == vulkan::CommandBuffer::DebugState::Recording);
 		auto gwt = device->submit(gcb, vulkan::submit_signal_timeline);
 		log::debug("mesh_registry: post gfx queue submit");
 

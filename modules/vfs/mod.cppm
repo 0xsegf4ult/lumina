@@ -6,6 +6,10 @@ module;
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <unistd.h>
+#elif defined LUMINA_PLATFORM_WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
 #endif
 
 export module lumina.vfs;
@@ -46,7 +50,12 @@ export std::string_view file_open_error(FileOpenError e)
 
 export struct File
 {
+	#if defined LUMINA_PLATFORM_POSIX
 	int fd;
+	#elif defined LUMINA_PLATFORM_WIN32
+	HANDLE fd;
+	HANDLE map;
+	#endif
 	std::size_t size;
 	void* mapped;
 	bool rw;
@@ -69,10 +78,12 @@ void init()
 {
 	vfs_context = new vfs_context_t();
 
+	#if defined LUMINA_PLATFORM_POSIX
 	struct rlimit lim;
 	getrlimit(RLIMIT_NOFILE, &lim);
 	lim.rlim_cur = 65536;
 	setrlimit(RLIMIT_NOFILE, &lim);
+	#endif
 }
 
 void shutdown()
@@ -118,6 +129,65 @@ open_return_type open_unscoped(const path& p, access_readonly_t)
 	if(f.mapped == MAP_FAILED)
 	{
 		std::perror("failed to mmap file");
+		return std::unexpected(FileOpenError::Unknown);
+	}
+	#elif defined LUMINA_PLATFORM_WIN32
+	f.fd = CreateFileW
+	(
+		p.c_str(),
+		GENERIC_READ,
+		0,
+		nullptr,
+		OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL,
+		0
+	);
+
+	if(f.fd == INVALID_HANDLE_VALUE)
+	{
+		log::error("CreateFileW failed with error {}", GetLastError());
+		return std::unexpected(FileOpenError::Unknown);
+	}
+
+	LARGE_INTEGER fsize;
+	if(!GetFileSizeEx(f.fd, &fsize))
+	{
+		log::error("GetFileSizeEx failed with error {}", GetLastError());
+		CloseHandle(f.fd);
+		return std::unexpected(FileOpenError::Unknown);
+	}
+
+	f.size = static_cast<size_t>(fsize.QuadPart);
+
+	f.map = CreateFileMapping
+	(
+		f.fd,
+		nullptr,
+		PAGE_READONLY,
+		0, 
+		0,
+		nullptr
+	);
+
+	if(f.map == 0)
+	{
+		log::error("CreateFileMapping failed with error {}", GetLastError());
+		CloseHandle(f.fd);
+		return std::unexpected(FileOpenError::Unknown);
+	}
+
+	f.mapped = MapViewOfFile
+	(
+		f.map,
+		FILE_MAP_READ,
+		0, 0, 0
+	);
+
+	if(f.mapped == nullptr)
+	{
+		log::error("MapViewOfFile failed with error {}", GetLastError());
+		CloseHandle(f.map);
+		CloseHandle(f.fd);
 		return std::unexpected(FileOpenError::Unknown);
 	}
 	#else
@@ -173,6 +243,8 @@ open_return_type open_unscoped(const path& p, access_rw_t)
 	f.mapped = mmap(nullptr, f.size, PROT_READ | PROT_WRITE, MAP_PRIVATE, f.fd, 0);
 	if(f.mapped == MAP_FAILED)
 		return std::unexpected(FileOpenError::Unknown);
+	#elif defined LUMINA_PLATFORM_WIN32
+	log::critical("vfs_win32: open_rw STUBBED");
 	#else
 	static_assert(false, "not implemented for current platform");
 	#endif
@@ -195,6 +267,10 @@ void close(Handle<File> h)
 	#if defined LUMINA_PLATFORM_POSIX
 	munmap(f.mapped, f.size);
 	::close(f.fd);
+	#elif defined LUMINA_PLATFORM_WIN32
+	UnmapViewOfFile(f.mapped);
+	CloseHandle(f.map);
+	CloseHandle(f.fd);
 	#else
 	static_assert(false, "not implemented for current platform");
 	#endif

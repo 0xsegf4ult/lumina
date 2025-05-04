@@ -98,7 +98,7 @@ public:
 	vk::Sampler get_prefab_sampler(SamplerPrefab sampler) const;
 	uint64_t current_frame_index(Queue queue = Queue::Graphics) const;	
 
-	constexpr std::string_view get_name() const
+	std::string_view get_name() const
 	{
 		return {gpu.props.deviceName};
 	}
@@ -252,7 +252,6 @@ private:
 
 	BufferHandle upload_buffer;
 	constexpr static uint32_t upload_buffer_size = 16 * 1024 * 1024;
-
 };
 
 }

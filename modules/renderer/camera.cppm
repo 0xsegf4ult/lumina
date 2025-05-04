@@ -81,7 +81,7 @@ public:
 		}
 	}
 
-	constexpr mat4 get_persp_mtx_farplane() const
+	mat4 get_persp_mtx_farplane() const
 	{
 		const float focal_length = 1.0f / std::tan(fov / 2.0f);
 		const float aspect_ratio = width / height;

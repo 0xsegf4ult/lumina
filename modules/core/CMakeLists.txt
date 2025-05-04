@@ -17,7 +17,13 @@ add_custom_target(
 add_dependencies(lumina_core generate_config_module)
 
 target_compile_options(lumina_core PUBLIC ${LUMINA_COMPILE_OPTIONS})
-target_link_libraries(lumina_core PUBLIC m spdlog::spdlog pthread Tracy::TracyClient)
+set(LCORE_LINK_LIBRARIES spdlog::spdlog Tracy::TracyClient)
+
+if(${LUMINA_PLATFORM} MATCHES "LINUX")
+	set(LCORE_LINK_LIBRARIES ${LCORE_LINK_LIBRARIES} m pthread)
+endif()
+
+target_link_libraries(lumina_core PUBLIC ${LCORE_LINK_LIBRARIES})
 target_sources(lumina_core PUBLIC FILE_SET CXX_MODULES FILES
 	mod.cppm
 	config/mod.cppm
@@ -32,6 +38,7 @@ target_sources(lumina_core PUBLIC FILE_SET CXX_MODULES FILES
 	math/util.cppm
 	math/vector.cppm
 	array_proxy.cppm
+	fixed_string.cppm
 	hash.cppm
 	handle.cppm
 	iterable_proxy.cppm
