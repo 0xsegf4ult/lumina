@@ -269,7 +269,7 @@ public:
 				({{
 					.src_stage = vk::PipelineStageFlagBits2::eTransfer,
 					.src_access = vk::AccessFlagBits2::eTransferWrite,
-					.dst_stage = vk::PipelineStageFlagBits2::eBottomOfPipe,
+					.dst_stage = vk::PipelineStageFlagBits2::eAllCommands,
 					.src_layout = vk::ImageLayout::eTransferDstOptimal,
 					.dst_layout = vk::ImageLayout::eTransferDstOptimal,
 					.src_queue = vulkan::Queue::Transfer,
@@ -289,24 +289,13 @@ public:
 			{
 				gcb.pipeline_barrier
 				({{
-					.src_stage = vk::PipelineStageFlagBits2::eTopOfPipe,
-					.dst_stage = vk::PipelineStageFlagBits2::eTransfer,
-					.dst_access = vk::AccessFlagBits2::eTransferWrite,
-					.src_layout = vk::ImageLayout::eTransferDstOptimal,
-					.dst_layout = vk::ImageLayout::eTransferDstOptimal,
-					.src_queue = vulkan::Queue::Transfer,
-					.dst_queue = vulkan::Queue::Graphics,
-					.image = load_data[j].image.get()
-				}});
-				
-				gcb.pipeline_barrier
-				({{
-					.src_stage = vk::PipelineStageFlagBits2::eTransfer,
-					.src_access = vk::AccessFlagBits2::eTransferWrite,
+					.src_stage = vk::PipelineStageFlagBits2::eFragmentShader,
 					.dst_stage = vk::PipelineStageFlagBits2::eFragmentShader,
 					.dst_access = vk::AccessFlagBits2::eShaderRead,
 					.src_layout = vk::ImageLayout::eTransferDstOptimal,
 					.dst_layout = vk::ImageLayout::eShaderReadOnlyOptimal,
+					.src_queue = vulkan::Queue::Transfer,
+					.dst_queue = vulkan::Queue::Graphics,
 					.image = load_data[j].image.get()
 				}});
 			}

@@ -494,14 +494,117 @@ public:
 
 		}
 
+		auto grcb = device->request_command_buffer(vulkan::Queue::Graphics, "mesh_registry_gfx_release");
+		grcb.pipeline_barrier
+		({
+			{
+			.src_stage = vk::PipelineStageFlagBits2::eVertexAttributeInput,
+			.src_access = vk::AccessFlagBits2::eVertexAttributeRead,
+			.dst_stage = vk::PipelineStageFlagBits2::eAllCommands,
+			.src_queue = vulkan::Queue::Graphics,
+			.dst_queue = vulkan::Queue::Transfer,
+			.buffer	= gpu_vertex_pos_buffer.get(),
+			},
+			{
+			.src_stage = vk::PipelineStageFlagBits2::eVertexAttributeInput,
+			.src_access = vk::AccessFlagBits2::eVertexAttributeRead,	
+			.dst_stage = vk::PipelineStageFlagBits2::eAllCommands,
+			.src_queue = vulkan::Queue::Graphics,
+			.dst_queue = vulkan::Queue::Transfer,
+			.buffer = gpu_vertex_attr_buffer.get(),
+			},
+			{
+			.src_stage = vk::PipelineStageFlagBits2::eIndexInput,
+			.src_access = vk::AccessFlagBits2::eIndexRead,
+			.dst_stage = vk::PipelineStageFlagBits2::eAllCommands,
+			.src_queue = vulkan::Queue::Graphics,
+			.dst_queue = vulkan::Queue::Transfer,
+			.buffer = gpu_index_buffer.get(),
+			},
+			{
+			.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
+			.src_access = vk::AccessFlagBits2::eShaderStorageRead,
+			.dst_stage = vk::PipelineStageFlagBits2::eAllCommands,
+			.src_queue = vulkan::Queue::Graphics,
+			.dst_queue = vulkan::Queue::Transfer,
+			.buffer = gpu_skinned_vertices.get(),
+			},
+			{
+			.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
+			.src_access = vk::AccessFlagBits2::eShaderStorageRead,
+			.dst_stage = vk::PipelineStageFlagBits2::eAllCommands,
+			.src_queue = vulkan::Queue::Graphics,
+			.dst_queue = vulkan::Queue::Transfer,
+			.buffer = gpu_meshlod_buffer.get(),
+			}
+		});
+
+		auto grtv = device->submit(grcb, vulkan::submit_signal_timeline);
+
 		log::debug("mesh_registry: start async cb");
-		auto cb = device->request_command_buffer(vulkan::Queue::Transfer, "mesh_registry_copy");
+		auto cb = device->request_command_buffer(vulkan::Queue::Transfer, "mesh_registry_async_copy");
 		{
-			cb.vk_object().copyBuffer(upload_buffer->handle, gpu_vertex_pos_buffer->handle, static_cast<uint32_t>(transfer_cmd_vpos.size()), transfer_cmd_vpos.data());
-			cb.vk_object().copyBuffer(upload_buffer->handle, gpu_vertex_attr_buffer->handle, static_cast<uint32_t>(transfer_cmd_vattr.size()), transfer_cmd_vattr.data());
-			cb.vk_object().copyBuffer(upload_buffer->handle, gpu_index_buffer->handle, static_cast<uint32_t>(transfer_cmd_idx.size()), transfer_cmd_idx.data());
-			cb.vk_object().copyBuffer(upload_buffer->handle, gpu_skinned_vertices->handle, static_cast<uint32_t>(transfer_cmd_skv.size()), transfer_cmd_skv.data()); 
-			cb.vk_object().copyBuffer(upload_buffer->handle, gpu_meshlod_buffer->handle, static_cast<uint32_t>(transfer_cmd_lod.size()), transfer_cmd_lod.data());
+			cb.add_wait_semaphore({vulkan::Queue::Graphics, grtv, vk::PipelineStageFlagBits2::eTransfer});
+
+			cb.pipeline_barrier
+			({
+			 	{
+			 	.src_stage = vk::PipelineStageFlagBits2::eTransfer,
+				.dst_stage = vk::PipelineStageFlagBits2::eTransfer,
+				.dst_access = vk::AccessFlagBits2::eTransferWrite,
+				.src_queue = vulkan::Queue::Graphics,
+				.dst_queue = vulkan::Queue::Transfer,
+				.buffer = gpu_vertex_pos_buffer.get(),
+				},
+				{
+				.src_stage = vk::PipelineStageFlagBits2::eTransfer,
+				.dst_stage = vk::PipelineStageFlagBits2::eTransfer,
+				.dst_access = vk::AccessFlagBits2::eTransferWrite,
+				.src_queue = vulkan::Queue::Graphics,
+				.dst_queue = vulkan::Queue::Transfer,
+				.buffer = gpu_vertex_attr_buffer.get(),
+				},
+				{
+				.src_stage = vk::PipelineStageFlagBits2::eTransfer,
+				.dst_stage = vk::PipelineStageFlagBits2::eTransfer,
+				.dst_access = vk::AccessFlagBits2::eTransferWrite,
+				.src_queue = vulkan::Queue::Graphics,
+				.dst_queue = vulkan::Queue::Transfer,
+				.buffer = gpu_index_buffer.get(),
+				},
+				{
+				.src_stage = vk::PipelineStageFlagBits2::eTransfer,
+				.dst_stage = vk::PipelineStageFlagBits2::eTransfer,
+				.dst_access = vk::AccessFlagBits2::eTransferWrite,
+				.src_queue = vulkan::Queue::Graphics,
+				.dst_queue = vulkan::Queue::Transfer,
+				.buffer = gpu_skinned_vertices.get(),
+				},
+				{
+				.src_stage = vk::PipelineStageFlagBits2::eTransfer,
+				.dst_stage = vk::PipelineStageFlagBits2::eTransfer,
+				.dst_access = vk::AccessFlagBits2::eTransferWrite,
+				.src_queue = vulkan::Queue::Graphics,
+				.dst_queue = vulkan::Queue::Transfer,
+				.buffer = gpu_meshlod_buffer.get(),
+				}
+			});
+
+			if(!transfer_cmd_vpos.empty())
+				cb.vk_object().copyBuffer(upload_buffer->handle, gpu_vertex_pos_buffer->handle, static_cast<uint32_t>(transfer_cmd_vpos.size()), transfer_cmd_vpos.data());
+
+			if(!transfer_cmd_vattr.empty())
+				cb.vk_object().copyBuffer(upload_buffer->handle, gpu_vertex_attr_buffer->handle, static_cast<uint32_t>(transfer_cmd_vattr.size()), transfer_cmd_vattr.data());
+
+			if(!transfer_cmd_idx.empty())
+				cb.vk_object().copyBuffer(upload_buffer->handle, gpu_index_buffer->handle, static_cast<uint32_t>(transfer_cmd_idx.size()), transfer_cmd_idx.data());
+
+			if(!transfer_cmd_skv.empty())
+				cb.vk_object().copyBuffer(upload_buffer->handle, gpu_skinned_vertices->handle, static_cast<uint32_t>(transfer_cmd_skv.size()), transfer_cmd_skv.data());
+
+			if(!transfer_cmd_lod.empty())	
+				cb.vk_object().copyBuffer(upload_buffer->handle, gpu_meshlod_buffer->handle, static_cast<uint32_t>(transfer_cmd_lod.size()), transfer_cmd_lod.data());
+
 			cb.pipeline_barrier
 			({
 			 	{
@@ -550,7 +653,7 @@ public:
 		auto wt = device->submit(cb, vulkan::submit_signal_timeline);
 	
 		log::debug("mesh_registry: handover to gfx queue");
-		auto gcb = device->request_command_buffer(vulkan::Queue::Graphics, "gfx_mesh_acb_wait");
+		auto gcb = device->request_command_buffer(vulkan::Queue::Graphics, "mesh_registry_gfx_acquire");
 		gcb.debug_name("gfx_mesh_acb_wait");
 	        {
 			gcb.add_wait_semaphore({vulkan::Queue::Transfer, wt, vk::PipelineStageFlagBits2::eVertexAttributeInput | vk::PipelineStageFlagBits2::eIndexInput | vk::PipelineStageFlagBits2::eComputeShader});
@@ -558,7 +661,7 @@ public:
 			gcb.pipeline_barrier
 			({
 		 		{
-		       		.src_stage = vk::PipelineStageFlagBits2::eTopOfPipe,
+		       		.src_stage = vk::PipelineStageFlagBits2::eVertexAttributeInput,
 				.dst_stage = vk::PipelineStageFlagBits2::eVertexAttributeInput,
 				.dst_access = vk::AccessFlagBits2::eVertexAttributeRead,
 				.src_queue = vulkan::Queue::Transfer,
@@ -566,7 +669,7 @@ public:
 				.buffer	= gpu_vertex_pos_buffer.get(),
 				},
 				{
-		       		.src_stage = vk::PipelineStageFlagBits2::eTopOfPipe,
+		       		.src_stage = vk::PipelineStageFlagBits2::eVertexAttributeInput,
 				.dst_stage = vk::PipelineStageFlagBits2::eVertexAttributeInput,
 				.dst_access = vk::AccessFlagBits2::eVertexAttributeRead,	
 				.src_queue = vulkan::Queue::Transfer,
@@ -574,7 +677,7 @@ public:
 				.buffer = gpu_vertex_attr_buffer.get(),
 				},
 				{
-		       		.src_stage = vk::PipelineStageFlagBits2::eTopOfPipe,
+		       		.src_stage = vk::PipelineStageFlagBits2::eIndexInput,
 				.dst_stage = vk::PipelineStageFlagBits2::eIndexInput,
 				.dst_access = vk::AccessFlagBits2::eIndexRead,
 				.src_queue = vulkan::Queue::Transfer,
@@ -582,7 +685,7 @@ public:
 				.buffer = gpu_index_buffer.get(),
 				},
 				{
-				.src_stage = vk::PipelineStageFlagBits2::eTopOfPipe,
+				.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
 				.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
 				.dst_access = vk::AccessFlagBits2::eShaderStorageRead,
 				.src_queue = vulkan::Queue::Transfer,
@@ -590,7 +693,7 @@ public:
 				.buffer = gpu_skinned_vertices.get(),
 				},
 				{
-		       		.src_stage = vk::PipelineStageFlagBits2::eTopOfPipe,
+		       		.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
 				.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
 				.dst_access = vk::AccessFlagBits2::eShaderStorageRead,
 				.src_queue = vulkan::Queue::Transfer,
