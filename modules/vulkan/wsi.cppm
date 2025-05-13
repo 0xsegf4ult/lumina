@@ -156,6 +156,7 @@ public:
 				device->wait_idle();
 				cleanup_swapchain();
 				init_swapchain();
+				window->signal_wm_resize();
 			}
 		
 		} while(needs_swapchain_rebuild);
@@ -202,6 +203,7 @@ public:
 			device->wait_idle();
 			cleanup_swapchain();
 			init_swapchain();
+			window->signal_wm_resize();
 			needs_swapchain_rebuild = false;
 		}
 	}

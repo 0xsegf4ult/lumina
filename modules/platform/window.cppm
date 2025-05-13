@@ -137,7 +137,11 @@ public:
 
 		w = static_cast<uint32_t>(nw);
 		h = static_cast<uint32_t>(nh);
-		log::info("platform::window: resize event {}x{}", nw, nh);
+	}
+
+	void signal_wm_resize()
+	{
+		log::info("platform::window: resize event {}x{}", w, h);
 		for(auto& callback : resize_event_listeners)
 			callback(w, h);
 	}
