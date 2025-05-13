@@ -558,8 +558,8 @@ void Device::submit_queue_nolock(Queue queue, uint64_t* sig_timeline)
 		auto wsi_stages = cmd.requires_wsi_sync();
 		auto batch = &qd.batch_data[cur_batch];
 
-		auto wsem = cmd.get_wait_semaphore();
-		if(wsem)
+		auto wsem = cmd.get_wait_semaphores();
+		if(!wsem.empty())
 		{
 			if(!batch->cmd.empty() || !batch->signal_sem.empty())
 			{
@@ -569,12 +569,15 @@ void Device::submit_queue_nolock(Queue queue, uint64_t* sig_timeline)
 				batch = &qd.batch_data[cur_batch];
 			}
 
-			batch->wait_sem.push_back
-			({
-				.semaphore = queues[static_cast<size_t>(wsem->wait_queue)].semaphore,
-				.value = wsem->wait_value,
-				.stageMask = wsem->wait_stages
-			});
+			for(auto& ws : wsem)
+			{
+				batch->wait_sem.push_back
+				({
+					.semaphore = queues[static_cast<size_t>(ws.wait_queue)].semaphore,
+					.value = ws.wait_value,
+					.stageMask = ws.wait_stages
+				});
+			}
 		}
 
 		if(!batch->signal_sem.empty())

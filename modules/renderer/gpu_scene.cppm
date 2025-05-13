@@ -659,20 +659,39 @@ public:
 				continue;
 
 			auto& vp = viewports[pass.viewport - 1];
-			if(vp.zbuf && vp.needs_barrier)
+			if(vp.zbuf)
 			{
-				cmd.pipeline_barrier
-				({
-					{
-					.src_stage = vk::PipelineStageFlagBits2::eTopOfPipe,
-					.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
-					.dst_access = vk::AccessFlagBits2::eShaderRead,
-					.src_layout = vk::ImageLayout::eUndefined,
-					.dst_layout = vk::ImageLayout::eGeneral,
-					.image = vp.depth_pyramid.get()
-					}
-				});
-				vp.needs_barrier = false;
+				if(vp.needs_barrier)
+				{
+					cmd.pipeline_barrier
+					({
+						{
+						.src_stage = vk::PipelineStageFlagBits2::eTopOfPipe,
+						.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
+						.dst_access = vk::AccessFlagBits2::eShaderRead,
+						.src_layout = vk::ImageLayout::eUndefined,
+						.dst_layout = vk::ImageLayout::eGeneral,
+						.image = vp.depth_pyramid.get()
+						}
+					});
+					vp.needs_barrier = false;
+				}
+				else
+				{
+					cmd.pipeline_barrier
+					({
+						{
+						.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
+						.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
+						.dst_access = vk::AccessFlagBits2::eShaderRead,
+						.src_layout = vk::ImageLayout::eGeneral,
+						.dst_layout = vk::ImageLayout::eGeneral,
+						.src_queue = vulkan::Queue::Compute,
+						.dst_queue = vulkan::Queue::Graphics,
+						.image = vp.depth_pyramid.get()
+						}
+					});
+				}
 			}
 
 			auto& gbuf = pass.gpu_buffers[cmd.ctx_index];
@@ -707,6 +726,23 @@ public:
 			}
 
 			cmd.dispatch((static_cast<uint32_t>(pass.indirect_batches.size()) / 32u) + 1u, 1u, 1u);
+
+			if(vp.zbuf)
+			{
+				cmd.pipeline_barrier
+				({
+				 	{
+					.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
+					.src_access = vk::AccessFlagBits2::eShaderWrite,
+					.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
+					.src_layout = vk::ImageLayout::eGeneral,
+					.dst_layout = vk::ImageLayout::eGeneral,
+					.src_queue = vulkan::Queue::Graphics,
+					.dst_queue = vulkan::Queue::Compute,
+					.image = vp.depth_pyramid.get()
+					}
+				});
+			}
 		}
 
 		cmd.memory_barrier
@@ -722,10 +758,9 @@ public:
 		device->submit(cmd);
 	}
 
-	void build_depth_pyramid()
+	void build_depth_pyramid(vulkan::CommandBuffer& cmd)
 	{
 		ZoneScoped;
-		auto cmd = device->request_command_buffer(vulkan::Queue::Graphics, "gpu_scene::buildHZB");
 		device->start_perf_event("gpu_scene::buildHZB", cmd);
 		cmd.bind_pipeline({"depthreduce.comp"});
 
@@ -736,15 +771,6 @@ public:
 
 			cmd.pipeline_barrier
 			({
-			 	{
-				.src_stage = vk::PipelineStageFlagBits2::eLateFragmentTests,
-				.src_access = vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
-				.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
-				.dst_access = vk::AccessFlagBits2::eShaderRead,
-				.src_layout = vk::ImageLayout::eDepthStencilAttachmentOptimal,
-				.dst_layout = vk::ImageLayout::eShaderReadOnlyOptimal,
-				.image = vp.zbuf
-				},
 				{
 				.src_stage = vk::PipelineStageFlagBits2::eTopOfPipe,
 				.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
@@ -790,22 +816,14 @@ public:
 				},
 				{
 				.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
-				.src_access = vk::AccessFlagBits2::eShaderRead,
 				.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
 				.dst_access = vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eShaderWrite,
 				.src_layout = vk::ImageLayout::eGeneral,
 				.dst_layout = vk::ImageLayout::eGeneral,
+				.src_queue = vulkan::Queue::Graphics,
+				.dst_queue = vulkan::Queue::Compute,
 				.image = vp.depth_pyramid.get()
 				},
-				{
-				.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
-				.src_access = vk::AccessFlagBits2::eShaderRead,
-				.dst_stage = vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests,
-				.dst_access = vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
-				.src_layout = vk::ImageLayout::eShaderReadOnlyOptimal,
-				.dst_layout = vk::ImageLayout::eDepthStencilAttachmentOptimal,
-				.image = vp.zbuf
-				}
 			});
 		}
 
@@ -871,9 +889,10 @@ public:
 				.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
 				.src_access = vk::AccessFlagBits2::eShaderWrite,
 				.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
-				.dst_access = vk::AccessFlagBits2::eShaderRead,
 				.src_layout = vk::ImageLayout::eGeneral,
 				.dst_layout = vk::ImageLayout::eGeneral,
+				.src_queue = vulkan::Queue::Compute,
+				.dst_queue = vulkan::Queue::Graphics,
 				.image = vp.depth_pyramid.get()
 				}
 			});
@@ -890,7 +909,6 @@ public:
 			});
 		}
 		device->end_perf_event(cmd);
-		device->submit(cmd);
 	}
 
 	void draw_ui()

@@ -453,15 +453,14 @@ void CommandBuffer::dispatch(uvec3 group_size)
 
 void CommandBuffer::add_wait_semaphore(WaitSemaphoreInfo&& ws)
 {
-	wsem = std::move(ws);
+	assert(ws_count < 2);
+	wsem[ws_count] = std::move(ws);
+	ws_count++;
 }
 
-WaitSemaphoreInfo* CommandBuffer::get_wait_semaphore()
+std::span<WaitSemaphoreInfo> CommandBuffer::get_wait_semaphores()
 {
-	if(wsem.wait_queue == Queue::Invalid)
-		return nullptr;
-
-	return &wsem;
+	return {wsem.data(), ws_count};
 }
 
 void CommandBuffer::debug_name(std::string_view name)

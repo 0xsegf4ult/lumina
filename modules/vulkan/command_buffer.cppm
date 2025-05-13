@@ -107,7 +107,7 @@ struct CommandBuffer
 	}
 
 	CommandBuffer(const CommandBuffer&) = delete;
-	CommandBuffer(CommandBuffer&& other) noexcept : device{other.device}, cmd{other.cmd}, thread{other.thread}, queue{other.queue}, ctx_index{other.ctx_index}, bound_pipe{other.bound_pipe}, wsi_sync{other.wsi_sync}, wsem{other.wsem}, dbg_name{other.dbg_name}
+	CommandBuffer(CommandBuffer&& other) noexcept : device{other.device}, cmd{other.cmd}, thread{other.thread}, queue{other.queue}, ctx_index{other.ctx_index}, bound_pipe{other.bound_pipe}, wsi_sync{other.wsi_sync}, wsem{other.wsem}, ws_count{other.ws_count}, dbg_name{other.dbg_name}
 	{
 
 	}
@@ -123,6 +123,7 @@ struct CommandBuffer
 		bound_pipe = other.bound_pipe;
 		wsi_sync = other.wsi_sync;
 		wsem = other.wsem;
+		ws_count = other.ws_count;
 		dbg_name = other.dbg_name;
 		return *this;
 	}
@@ -166,7 +167,7 @@ struct CommandBuffer
 	void dispatch(uvec3 group_size);
 
 	void add_wait_semaphore(WaitSemaphoreInfo&& ws);
-	WaitSemaphoreInfo* get_wait_semaphore();
+	std::span<WaitSemaphoreInfo> get_wait_semaphores();
 
 	void debug_name(std::string_view name);
 
@@ -180,7 +181,8 @@ struct CommandBuffer
 
 	Pipeline* bound_pipe{nullptr};
 	bool is_compute_pso{false};
-	WaitSemaphoreInfo wsem{};
+	std::array<WaitSemaphoreInfo, 2> wsem;
+	uint32_t ws_count = 0;
 
 	std::string_view dbg_name{"cmd_generic"};
 };
