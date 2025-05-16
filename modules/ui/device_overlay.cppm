@@ -49,9 +49,18 @@ void draw_device_overlay(platform::Window& window, vulkan::Device& device, uvec2
 	cur_y += ImGui::GetTextLineHeight();
 
 	auto evt_data = device.get_perf_events();
+	float wt = 0.0f;
 	for(auto& evt : evt_data)
 	{
 		std::format_to(buf, "{}: {:.2f}ms{}", evt.name, evt.time, '\0');
+		draw->AddText(ImVec2(root.x, cur_y), ImColor(255, 255, 255, 255), buf);
+		cur_y += ImGui::GetTextLineHeight();
+		wt += evt.time;
+	}
+
+	if(wt != 0.0f)
+	{
+		std::format_to(buf, "workload time: {:.2f}ms{}", wt, '\0');
 		draw->AddText(ImVec2(root.x, cur_y), ImColor(255, 255, 255, 255), buf);
 		cur_y += ImGui::GetTextLineHeight();
 	}

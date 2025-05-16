@@ -134,7 +134,7 @@ public:
 
 	SwapchainTexture* begin_frame()
 	{
-		device->advance_timeline(Queue::Graphics);
+		device->begin_frame();
 
 		do
 		{
@@ -166,8 +166,7 @@ public:
 
 	void end_frame()
 	{
-		
-		device->submit_queue(Queue::Graphics);
+		device->end_frame();
 		vk::Semaphore present_sem = device->wsi_signal_present();
 
 		vk::StructureChain<vk::PresentInfoKHR, vk::SwapchainPresentModeInfoEXT> present_chain

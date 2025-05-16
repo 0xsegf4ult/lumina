@@ -257,8 +257,8 @@ public:
 		ImGui::Render();
 		auto draw_data = ImGui::GetDrawData();
 
-		ImDrawVert* vmem = static_cast<ImDrawVert*>(perframe_data[cb.ctx_index].vertex->mapped);
-		ImDrawIdx* imem = static_cast<ImDrawIdx*>(perframe_data[cb.ctx_index].index->mapped);
+		ImDrawVert* vmem = static_cast<ImDrawVert*>(perframe_data[device->current_frame_index()].vertex->mapped);
+		ImDrawIdx* imem = static_cast<ImDrawIdx*>(perframe_data[device->current_frame_index()].index->mapped);
 		for(int i = 0; i < draw_data->CmdListsCount; i++)
 		{
 			const ImDrawList* cmd_list = draw_data->CmdLists[i];
@@ -334,10 +334,10 @@ public:
 
 						cb.bind_vertex_buffers
 						({
-							perframe_data[cb.ctx_index].vertex.get()
+							perframe_data[device->current_frame_index()].vertex.get()
 						});
 
-						cb.bind_index_buffer(perframe_data[cb.ctx_index].index.get(), vk::IndexType::eUint16);
+						cb.bind_index_buffer(perframe_data[device->current_frame_index()].index.get(), vk::IndexType::eUint16);
 						cb.draw_indexed(draw_cmd->ElemCount, 1, idx_offset + static_cast<uint32_t>(draw_cmd->IdxOffset), vtx_offset + static_cast<int32_t>(draw_cmd->VtxOffset), 0);
 					}
 				}

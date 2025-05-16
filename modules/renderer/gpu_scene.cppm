@@ -348,7 +348,7 @@ public:
 
 		cmd.vk_object().drawIndexedIndirect
 		(
-			pass.gpu_buffers[cmd.ctx_index].command->handle,
+			pass.gpu_buffers[device->current_frame_index()].command->handle,
 			batch->first * sizeof(vk::DrawIndexedIndirectCommand),
 			batch->count,
 			sizeof(vk::DrawIndexedIndirectCommand)
@@ -379,12 +379,14 @@ public:
 					}
 					processed = true;
 
-					vec4 center = vec4{mesh.bounds.sphere.center, 1.0f} * t.as_matrix();
+					auto tm = object.transform.as_matrix();
+
+					vec4 center = vec4{mesh.bounds.sphere.center, 1.0f} * tm;
 					float radius = std::abs(std::max(std::max(t.scale.x, t.scale.y), t.scale.z)) * mesh.bounds.sphere.radius;
 
 					GPUObjectData data
 					{
-						object.transform.as_matrix(),
+						tm,
 						vec4{center.x, center.y, center.z, radius},
 						static_cast<uint32_t>(object.material & 0xFFFFFFFF)
 					};
@@ -694,7 +696,7 @@ public:
 				}
 			}
 
-			auto& gbuf = pass.gpu_buffers[cmd.ctx_index];
+			auto& gbuf = pass.gpu_buffers[device->current_frame_index()];
 
 			cmd.push_descriptor_set
 			({

@@ -96,7 +96,7 @@ public:
 	vk::Queue get_queue(Queue queue);
 	uint32_t get_queue_index(Queue queue) const;	
 	vk::Sampler get_prefab_sampler(SamplerPrefab sampler) const;
-	uint64_t current_frame_index(Queue queue = Queue::Graphics) const;	
+	size_t current_frame_index() const;	
 
 	std::string_view get_name() const
 	{
@@ -139,7 +139,9 @@ public:
 	void wait_idle();
 
 	void advance_timeline(Queue queue);
-	
+	void begin_frame();
+	void end_frame();
+
 	Pipeline* try_get_pipeline(const GraphicsPSOKey& key);
 	Pipeline* try_get_pipeline(const ComputePSOKey& key);
 	vk::DescriptorSetLayout get_descriptor_set_layout(const DescriptorSetLayoutKey& key, bool is_push);
@@ -152,13 +154,7 @@ public:
 
 	std::span<PerfEvent> get_perf_events()
 	{
-		std::size_t count = 0;
-		if constexpr(perf_events_enabled)
-		{
-			count = perf_events[pe_read].evt_head;
-		}
-
-		return {perf_events[pe_read].events.data(), count};
+		return {cur_events.data(), evt_count};
 	}
 private:
 	vk::Device handle;
@@ -197,17 +193,16 @@ private:
 	};
 	std::array<QueueData, num_queues> queues;
 
-
 	struct PerfEvents
 	{
 		std::array<PerfEvent, 64> events;
+		vk::QueryPool query;
 		uint32_t evt_head = 0;
-		vk::QueryPool gfx_qp;
 	};
-
-	uint32_t pe_read = 0;
-	uint32_t pe_write = 1;
 	std::array<PerfEvents, num_ctx> perf_events;
+
+	std::array<PerfEvent, 64> cur_events;
+	uint32_t evt_count = 0;
 
 	struct WSISync
 	{
@@ -216,7 +211,7 @@ private:
 		bool signaled = false;
 	};
 	std::array<WSISync, num_ctx> wsi_sync;
-	uint64_t wsi_timeline;
+	uint64_t frame_counter_global = 0;
 
 	vk::DeviceSize vmem_usage{0};
 	vk::DeviceSize vmem_budget{0};

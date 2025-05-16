@@ -27,6 +27,7 @@ struct overloaded : T... { using T::operator()...; };
 namespace lumina::vulkan
 {
 
+constexpr bool track_resource_lifetime = false;
 constexpr size_t sem_wait_timeout = 1000000000;
 
 Device::Device(vk::Device _handle, vk::Instance owner, GPUInfo _gpu, DeviceFeatures _features) : handle{_handle}, instance{owner}, gpu{_gpu}, features{_features}
@@ -131,21 +132,21 @@ Device::Device(vk::Device _handle, vk::Instance owner, GPUInfo _gpu, DeviceFeatu
 		.size = upload_buffer_size,
 		.debug_name = "device::upload_buffer"
 	});
-
+		
 	if constexpr(perf_events_enabled)
 	{
-
 		for(uint32_t i = 0; i < 2; ++i)
 		{
-			perf_events[i].gfx_qp = handle.createQueryPool
+			perf_events[i].query = handle.createQueryPool
 			({
 				.queryType = vk::QueryType::eTimestamp,
 				.queryCount = 64
 			});
 			
-			handle.resetQueryPool(perf_events[i].gfx_qp, 0, 64);
+			handle.resetQueryPool(perf_events[i].query, 0, 64);
 		}
 	}
+
 }
 
 Device::~Device()
@@ -154,13 +155,13 @@ Device::~Device()
 	upload_buffer->device = nullptr;
 
 	wait_idle();
-
+		
 	if constexpr(perf_events_enabled)
 	{	
-		for(uint32_t i = 0; i < 2; ++i)
-			handle.destroyQueryPool(perf_events[i].gfx_qp);
+		for(uint32_t i = 0; i < 2; i++)
+			handle.destroyQueryPool(perf_events[i].query);
 	}
-
+		
 	handle.destroyBuffer(upload_buffer->handle);
 	handle.freeMemory(upload_buffer->memory);
 
@@ -254,27 +255,30 @@ vk::Sampler Device::get_prefab_sampler(SamplerPrefab prefab) const
 	return sampler_prefabs[static_cast<size_t>(prefab)];
 }	
 
-uint64_t Device::current_frame_index(Queue queue) const
+size_t Device::current_frame_index() const
 {
-	return queues[static_cast<size_t>(queue)].frame_counter.load() % num_ctx;
+	return static_cast<size_t>(frame_counter_global % num_ctx);
 }
 
 BufferHandle Device::create_buffer(const BufferKey& key)
 {
 	ZoneScoped;
 
+	// FIXME: queue indices must be unique, remove duplicates on systems where we alias compute/transfer queues to gfx
 	std::array<uint32_t, 3> indices;
 	indices[0] = queues[0].index;
 	indices[1] = queues[1].index;
 	indices[2] = queues[2].index;
 
+	// FIXME: nvidia ignores sharingMode for buffers, check if concurrent affects perf on amd
+
         vk::Buffer buf = handle.createBuffer
         ({
                 .size = key.size,
                 .usage = decode_buffer_usage(key.usage),
-                .sharingMode = key.concurrent_access ? vk::SharingMode::eConcurrent : vk::SharingMode::eExclusive,
-		.queueFamilyIndexCount =  key.concurrent_access ? 3u : 0u,
-		.pQueueFamilyIndices = key.concurrent_access ? indices.data() : nullptr
+                .sharingMode = vk::SharingMode::eConcurrent,
+		.queueFamilyIndexCount = 3u,
+		.pQueueFamilyIndices = indices.data()
         });
         set_object_name(buf, key.debug_name);
 
@@ -297,6 +301,12 @@ BufferHandle Device::create_buffer(const BufferKey& key)
                 if(key.initial_data)
                         memcpy(ptr->mapped, key.initial_data, ptr->size);
         }
+
+	if constexpr(track_resource_lifetime)
+	{
+		auto [sv, su] = log::pretty_format_size(mem_req.size);
+		log::debug("create_buffer: {} size {}{}", key.debug_name, sv, su);
+	}
 
         return BufferHandle{std::move(ptr)};
 }
@@ -339,7 +349,8 @@ ImageHandle Device::create_image(const ImageKey& key)
 	set_object_name(image, key.debug_name);
 	vk::MemoryRequirements mem_req = handle.getImageMemoryRequirements(image);
 
-	auto mem_type = get_memory_type(mem_req.memoryTypeBits, vk::MemoryPropertyFlagBits::eDeviceLocal);
+	vk::MemoryPropertyFlags mem_property = vk::MemoryPropertyFlagBits::eDeviceLocal;
+	auto mem_type = get_memory_type(mem_req.memoryTypeBits, mem_property);
 	if(!mem_type.has_value())
 	{
 		log::error("create_image: failed to find memory type for image");
@@ -354,6 +365,12 @@ ImageHandle Device::create_image(const ImageKey& key)
 
 	handle.bindImageMemory(image, memory, 0);
 	ImageHandle img{std::make_unique<Image>(this, key, image, memory)};
+	
+	if constexpr(track_resource_lifetime)
+	{
+		auto [sv, su] = log::pretty_format_size(mem_req.size);
+		log::debug("create_image: {} size {}{}", key.debug_name, sv, su);
+	}
 
 	if(key.initial_data)
 	{
@@ -460,6 +477,9 @@ CommandBuffer Device::request_command_buffer(Queue queue, std::string_view dbg_n
 			.level = vk::CommandBufferLevel::ePrimary,
 			.commandBufferCount = 1
 		}).back();
+
+		if constexpr(track_resource_lifetime)
+			log::debug("allocate cmdbuf {}", dbg_name);
 
 		cpool.buffers.push_back(cmd);
 		cpool.current++;
@@ -590,8 +610,7 @@ void Device::submit_queue_nolock(Queue queue, uint64_t* sig_timeline)
 		
 		if(wsi_stages && queue == Queue::Graphics)
 		{
-			auto wsi_timeline = queues[static_cast<size_t>(Queue::Graphics)].frame_counter.load();
-			auto& wsi = wsi_sync[wsi_timeline % num_ctx];
+			auto& wsi = wsi_sync[frame_counter_global % num_ctx];
 			if(!wsi.signaled)
 			{
 				batch->wait_sem.push_back
@@ -654,14 +673,12 @@ void Device::submit_queue_nolock(Queue queue, uint64_t* sig_timeline)
 
 vk::Semaphore Device::wsi_signal_acquire()
 {
-	auto wsi_timeline = queues[static_cast<size_t>(Queue::Graphics)].frame_counter.load();
-	return wsi_sync[wsi_timeline % num_ctx].acquire;
+	return wsi_sync[frame_counter_global % num_ctx].acquire;
 }
 
 vk::Semaphore Device::wsi_signal_present()
 {
-	auto wsi_timeline = queues[static_cast<size_t>(Queue::Graphics)].frame_counter.load();
-	return wsi_sync[wsi_timeline % num_ctx].present;
+	return wsi_sync[frame_counter_global % num_ctx].present;
 }
 
 bool Device::wait_timeline(Queue queue, uint64_t val)
@@ -719,10 +736,11 @@ void Device::advance_timeline(Queue queue)
 	auto& qd = queues[static_cast<size_t>(queue)];
 	std::scoped_lock<std::mutex> qlock{qd.queue_lock};
 	submit_queue_nolock(queue);
-	
+
+	auto last_fidx = qd.frame_counter.load() % num_ctx;
 	qd.frame_counter++;
 
-	auto fidx = qd.frame_counter.load() % num_ctx;
+	auto fidx = (last_fidx + 1) % num_ctx;
 
 	{
 		ZoneScopedN("sema_wait");
@@ -740,31 +758,7 @@ void Device::advance_timeline(Queue queue)
 			std::abort();
 		}
 	}
-
-	if(queue == Queue::Graphics)
-	{
-		// FIXME: redesign CPU -> GPU sync as this causes a ~1ms wait when enabled
-		if constexpr(perf_events_enabled)
-		{
-			ZoneScopedN("collect_perf_events");
-
-			std::array<uint64_t, 64> timestamps;
-			auto num_evt = perf_events[pe_write].evt_head;
-			if(num_evt)
-			{
-				[[maybe_unused]] auto qp_res = handle.getQueryPoolResults(perf_events[pe_write].gfx_qp, 0, num_evt * 2, num_evt * 2 * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t), vk::QueryResultFlagBits::e64 | vk::QueryResultFlagBits::eWait);
-				auto period = gpu.props.limits.timestampPeriod; 
-				for(uint32_t idx = 0; idx < num_evt; idx++)
-					perf_events[pe_write].events[idx].time = (timestamps[idx * 2 + 1] - timestamps[idx * 2]) * (period / 1e6);
-			}
-
-			std::swap(pe_write, pe_read);
-			handle.resetQueryPool(perf_events[pe_write].gfx_qp, 0, 64);
-			perf_events[pe_write].evt_head = 0;
-		}
-
-		wsi_sync[fidx].signaled = false;
-	}
+	
 
 	destroy_resources(queue);
 
@@ -789,9 +783,46 @@ void Device::advance_timeline(Queue queue)
 
 	}
 
-	// update memory budget ocassionally
-	if(qd.frame_counter % 60 == 0 && queue == Queue::Graphics)
+}
+
+void Device::begin_frame()
+{
+	ZoneScoped;
+
+	advance_timeline(Queue::Compute);
+	advance_timeline(Queue::Graphics);
+	
+	frame_counter_global = (frame_counter_global + 1);
+	auto fidx = frame_counter_global % num_ctx;
+
+	if constexpr(perf_events_enabled)
 	{
+		ZoneScopedN("collect_perf_events");
+
+		std::array<uint64_t, 64> timestamps;
+	
+		auto num_evt = perf_events[fidx].evt_head;
+		if(num_evt)
+		{
+			[[maybe_unused]] auto qp_res = handle.getQueryPoolResults(perf_events[fidx].query, 0, num_evt * 2, num_evt * 2 * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t), vk::QueryResultFlagBits::e64);
+			auto period = gpu.props.limits.timestampPeriod; 
+			for(uint32_t idx = 0; idx < num_evt; idx++)
+				perf_events[fidx].events[idx].time = (timestamps[idx * 2 + 1] - timestamps[idx * 2]) * (period / 1e6);
+
+			evt_count = num_evt;
+			std::memcpy(cur_events.data(), perf_events[fidx].events.data(), sizeof(PerfEvent) * num_evt);
+		}
+
+		handle.resetQueryPool(perf_events[fidx].query, 0, 64);
+		perf_events[fidx].evt_head = 0;
+	}
+		
+	wsi_sync[fidx].signaled = false;
+	
+	// update memory budget ocassionally
+	if(frame_counter_global % 60 == 0)
+	{
+		ZoneScopedN("update_mem_budget");
 		auto chain = gpu.handle.getMemoryProperties2<vk::PhysicalDeviceMemoryProperties2, vk::PhysicalDeviceMemoryBudgetPropertiesEXT>();
 
 		const vk::PhysicalDeviceMemoryProperties& props = chain.get<vk::PhysicalDeviceMemoryProperties2>().memoryProperties;
@@ -815,6 +846,14 @@ void Device::advance_timeline(Queue queue)
 		get_heap_budget(vulkan::BufferDomain::Device);
 		get_heap_budget(vulkan::BufferDomain::DeviceMapped);
 	}
+};
+
+void Device::end_frame()
+{
+	ZoneScoped;
+
+	submit_queue(Queue::Compute);
+	submit_queue(Queue::Graphics);
 }
 
 Shader* Device::try_get_shader(const std::filesystem::path& path)
@@ -994,10 +1033,14 @@ void Device::start_perf_event(std::string_view name, CommandBuffer& cmd)
 {
 	if constexpr(perf_events_enabled)
 	{
-		auto fidx = pe_write;
+		auto fidx = frame_counter_global % num_ctx;
 		auto head = perf_events[fidx].evt_head;
 		perf_events[fidx].events[head].name = name;
-		cmd.vk_object().writeTimestamp(vk::PipelineStageFlagBits::eTopOfPipe, perf_events[fidx].gfx_qp, head * 2);
+		cmd.vk_object().beginDebugUtilsLabelEXT
+		({
+			.pLabelName = name.data()
+		});
+		cmd.vk_object().writeTimestamp(vk::PipelineStageFlagBits::eTopOfPipe, perf_events[fidx].query, head * 2);
 	}
 }
 
@@ -1005,8 +1048,9 @@ void Device::end_perf_event(CommandBuffer& cmd)
 {
 	if constexpr(perf_events_enabled)
 	{
-		auto fidx = pe_write;
-		cmd.vk_object().writeTimestamp(vk::PipelineStageFlagBits::eBottomOfPipe, perf_events[fidx].gfx_qp, perf_events[fidx].evt_head * 2 + 1);
+		auto fidx = frame_counter_global % num_ctx;
+		cmd.vk_object().writeTimestamp(vk::PipelineStageFlagBits::eBottomOfPipe, perf_events[fidx].query, perf_events[fidx].evt_head * 2 + 1);
+		cmd.vk_object().endDebugUtilsLabelEXT();
 		perf_events[fidx].evt_head++;
 	}
 }
