@@ -147,7 +147,7 @@ public:
 	vk::DescriptorSetLayout get_descriptor_set_layout(const DescriptorSetLayoutKey& key, bool is_push);
 
 	void release_resource(Queue queue, ReleaseRequest&& req);
-	void destroy_resources(Queue queue);
+	void destroy_resources(Queue queue, uint64_t timeline);
 
 	void start_perf_event(std::string_view name, CommandBuffer& cmd);
 	void end_perf_event(CommandBuffer& cmd);

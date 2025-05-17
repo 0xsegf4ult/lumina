@@ -461,13 +461,15 @@ ImageViewHandle Device::create_image_view(const ImageViewKey& key)
 		}
 	});
 	set_object_name(vh, key.debug_name);
-
+	
 	return ImageViewHandle{std::make_unique<ImageView>(this, key, vh)};
 }
 
 void Device::release_resource(Queue queue, ReleaseRequest&& req)
 {
-	queues[static_cast<size_t>(queue)].released_resources.emplace_back(std::move(req));
+	auto& qd = queues[static_cast<size_t>(queue)];
+	req.timeline = qd.frame_tvals[qd.frame_counter.load() % num_ctx];
+	qd.released_resources.emplace_back(std::move(req));
 }
 
 CommandBuffer Device::request_command_buffer(Queue queue, std::string_view dbg_name)
@@ -716,14 +718,22 @@ bool Device::wait_timeline(Queue queue, uint64_t val)
 	return true;
 }
 
-void Device::destroy_resources(Queue queue)
+void Device::destroy_resources(Queue queue, uint64_t timeline)
 {
 	ZoneScoped;
 
 	auto& qd = queues[static_cast<size_t>(queue)];
+	if(timeline == 0)
+	{
+		auto fidx = qd.frame_counter.load() % num_ctx;
+		timeline = qd.frame_tvals[fidx];
+	}
 
 	for(auto& req : qd.released_resources)
 	{
+		if(req.timeline > timeline)
+			continue;
+
 		std::visit(overloaded
 		{
 			[this](vk::Buffer buf){handle.destroyBuffer(buf);},
@@ -732,16 +742,20 @@ void Device::destroy_resources(Queue queue)
 			[this](vk::DeviceMemory mem){handle.freeMemory(mem);}
 		}, req.resource);
 	}
-	qd.released_resources.clear();
+
+	std::erase_if(qd.released_resources, [timeline](const ReleaseRequest& elem)
+	{
+		return elem.timeline <= timeline;
+	});	
 }
 
 void Device::wait_idle()
 {
 	handle.waitIdle();
 	
-	destroy_resources(Queue::Graphics);
-	destroy_resources(Queue::Compute);
-	destroy_resources(Queue::Transfer);
+	destroy_resources(Queue::Graphics, 0);
+	destroy_resources(Queue::Compute, 0);
+	destroy_resources(Queue::Transfer, 0);
 }
 
 void Device::advance_timeline(Queue queue)
@@ -775,7 +789,7 @@ void Device::advance_timeline(Queue queue)
 	}
 	
 
-	destroy_resources(queue);
+	destroy_resources(queue, qd.frame_tvals[fidx]);
 
 	{
 
