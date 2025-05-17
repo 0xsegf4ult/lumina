@@ -131,8 +131,10 @@ vk::ImageUsageFlags decode_image_usage(ImageUsage usage)
         case ImageUsage::DepthAttachment:
                 return vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled;
         case ImageUsage::Framebuffer:
-        case ImageUsage::RWGraphics:
+	case ImageUsage::RWGraphics:
 		return vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled;
+	case ImageUsage::MSAAFramebuffer:
+		return vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransientAttachment;
 	case ImageUsage::CubemapRead:
 		return vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst;
 	case ImageUsage::Cubemap:

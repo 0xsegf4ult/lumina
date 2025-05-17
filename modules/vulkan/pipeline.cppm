@@ -63,12 +63,15 @@ constexpr uint32_t vk_format_size(vk::Format fmt)
 		return 8;
 	case vk::Format::eR8G8B8A8Unorm:
 	case vk::Format::eR8G8B8A8Srgb:
+	case vk::Format::eR16G16Sfloat:
 	case vk::Format::eR32Uint:
 	case vk::Format::eR32Sint:
 	case vk::Format::eR32Sfloat:
 		return 4;
-	default:
+	case vk::Format::eUndefined:
 		return 0;
+	default:
+		std::unreachable();
 	}
 }
 
@@ -84,18 +87,20 @@ export enum class DepthMode
 
 constexpr vk::CompareOp depth_mode_compare_op(DepthMode mode)
 {
+	using enum DepthMode;
+
 	switch(mode)
 	{
-	case DepthMode::Disabled:
+	case Disabled:
 	default:
 		return vk::CompareOp::eAlways;
-	case DepthMode::Equal:
+	case Equal:
 		return vk::CompareOp::eEqual;
-	case DepthMode::Shadowcast:
-	case DepthMode::Less:
+	case Shadowcast:
+	case Less:
 		return vk::CompareOp::eLess;
-	case DepthMode::ReverseZ:
-	case DepthMode::Greater:
+	case ReverseZ:
+	case Greater:
 		return vk::CompareOp::eGreater;
 	}
 }
@@ -109,15 +114,16 @@ export enum class BlendMode
 constexpr vk::PipelineColorBlendAttachmentState decode_blend_mode(BlendMode mode)
 {
 	vk::PipelineColorBlendAttachmentState att{};
+	using enum BlendMode;
 
 	switch(mode)
 	{
-	case BlendMode::Disabled:
+	case Disabled:
 	default:
 		att.blendEnable = false;
 		att.colorWriteMask = vk::ColorComponentFlagBits::eA | vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB;
 		break;
-	case BlendMode::AlphaBlend:
+	case AlphaBlend:
 		att.blendEnable = true;
 		att.srcColorBlendFactor = vk::BlendFactor::eSrcAlpha;
 		att.dstColorBlendFactor = vk::BlendFactor::eOneMinusSrcAlpha;
@@ -132,11 +138,35 @@ constexpr vk::PipelineColorBlendAttachmentState decode_blend_mode(BlendMode mode
 	return att;
 }
 
+export enum class MultisampleMode
+{
+	Disabled,
+	MSAAx2,
+	MSAAx4
+};
+
+constexpr vk::SampleCountFlagBits ms_mode_to_sample_count(MultisampleMode mode)
+{
+	using enum MultisampleMode;
+
+	switch(mode)
+	{
+	case MSAAx2:
+		return vk::SampleCountFlagBits::e2;
+	case MSAAx4:
+		return vk::SampleCountFlagBits::e4;
+	case Disabled:
+	default:
+		return vk::SampleCountFlagBits::e1;
+	}
+}
+
 export struct GraphicsPSOKey
 {
 	PrimitiveState primitive{};
 	VertexDescription vert_desc{};
-	DepthMode depth_mode;
+	DepthMode depth_mode{DepthMode::Disabled};
+	MultisampleMode multisample_mode{MultisampleMode::Disabled};
 	std::array<BlendMode, max_color_attachments> blend_modes{};
 	struct AttachmentFormats
 	{
@@ -164,7 +194,7 @@ export struct GraphicsPSOKey
 			if(shaders[i] != other.shaders[i])
 				return false;
 
-		return depth_mode == other.depth_mode && view_mask == other.view_mask;
+		return depth_mode == other.depth_mode && multisample_mode == other.multisample_mode && view_mask == other.view_mask;
 	}
 };
 
@@ -359,7 +389,7 @@ export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk:
 
 	vk::PipelineMultisampleStateCreateInfo multisample
 	{
-		.rasterizationSamples = vk::SampleCountFlagBits::e1,
+		.rasterizationSamples = ms_mode_to_sample_count(key.multisample_mode),
 		.sampleShadingEnable = false
 	};
 

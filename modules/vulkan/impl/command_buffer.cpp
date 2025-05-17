@@ -134,6 +134,13 @@ void CommandBuffer::begin_render_pass(const RenderPassDesc& rp)
 			depth.loadOp = att.load_op;
 			depth.storeOp = att.store_op;
 			depth.clearValue = {.depthStencil={att.clear, 0}};
+		
+			if(att.resolve)
+			{
+				depth.resolveMode = vk::ResolveModeFlagBits::eAverage;
+				depth.resolveImageView = att.resolve->get_handle();
+				depth.resolveImageLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
+			}
 
 			render_info.pDepthAttachment = &depth;
 			continue;
@@ -145,6 +152,13 @@ void CommandBuffer::begin_render_pass(const RenderPassDesc& rp)
 		new_att.imageLayout = vk::ImageLayout::eColorAttachmentOptimal;
 		new_att.loadOp = att.load_op;
 		new_att.storeOp = att.store_op;
+
+		if(att.resolve)
+		{
+			new_att.resolveMode = vk::ResolveModeFlagBits::eAverage;
+			new_att.resolveImageView = att.resolve->get_handle();
+			new_att.resolveImageLayout = vk::ImageLayout::eColorAttachmentOptimal;
+		}
 	}
 
 	render_info.colorAttachmentCount = att_count;

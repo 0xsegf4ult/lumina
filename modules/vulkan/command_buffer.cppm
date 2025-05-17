@@ -68,11 +68,12 @@ struct AttachmentDesc
 	ImageView* resource{nullptr};
 	vk::AttachmentLoadOp load_op{vk::AttachmentLoadOp::eDontCare};
 	vk::AttachmentStoreOp store_op{vk::AttachmentStoreOp::eStore};
+	ImageView* resolve{nullptr};
 	float clear{0.0f};
 
 	bool operator < (const AttachmentDesc& other) const
 	{
-		return std::tie(resource, load_op, store_op, clear) < std::tie(other.resource, other.load_op, other.store_op, other.clear);
+		return std::tie(resource, load_op, store_op, resolve, clear) < std::tie(other.resource, other.load_op, other.store_op, other.resolve, other.clear);
 	}
 };
 

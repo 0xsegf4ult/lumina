@@ -70,6 +70,7 @@ enum class ImageUsage
 	ColorAttachment,
 	DepthAttachment,
 	Framebuffer,
+	MSAAFramebuffer,
 	CubemapRead,
 	Cubemap,
 	RWGraphics,
@@ -87,6 +88,7 @@ struct ImageKey
 	uint32_t depth = 1;
 	uint32_t levels = 1;
 	uint32_t layers = 1;
+	uint32_t samples = 1;
 	vk::Format format = vk::Format::eUndefined;
 	ImageUsage usage = ImageUsage::Undefined;
 	std::string debug_name;

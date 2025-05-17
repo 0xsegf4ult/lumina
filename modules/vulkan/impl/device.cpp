@@ -331,6 +331,21 @@ ImageHandle Device::create_image(const ImageKey& key)
 	vk::ImageCreateFlagBits img_flags = vk::ImageCreateFlagBits{};
 	if((key.usage == ImageUsage::Cubemap || key.usage == ImageUsage::CubemapRead) && key.layers == 6)
 		img_flags = vk::ImageCreateFlagBits::eCubeCompatible;
+	
+	auto get_sample_count = [](uint32_t samples)
+	{
+		switch(samples)
+		{
+		case 1:
+			return vk::SampleCountFlagBits::e1;
+		case 2:
+			return vk::SampleCountFlagBits::e2;
+		case 4:
+			return vk::SampleCountFlagBits::e4;
+		default:
+			std::unreachable();
+		}
+	};
 
 	vk::Image image = handle.createImage
 	({
@@ -340,7 +355,7 @@ ImageHandle Device::create_image(const ImageKey& key)
 		.extent = {key.width, key.height, key.depth},
 		.mipLevels = key.levels,
 		.arrayLayers = key.layers,
-		.samples = vk::SampleCountFlagBits::e1,
+		.samples = get_sample_count(key.samples),
 		.tiling = vk::ImageTiling::eOptimal,
 		.usage = decode_image_usage(key.usage) | default_usage_flags,
 		.sharingMode = vk::SharingMode::eExclusive,
