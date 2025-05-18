@@ -7,6 +7,7 @@ target_sources(lumina_renderer PUBLIC FILE_SET CXX_MODULES FILES
 	camera.cppm
 	gpu_scene.cppm
 	resource_format.cppm
-	material_registry.cppm
-	texture_registry.cppm
-	mesh_registry.cppm)
+	resource_storage.cppm
+	resource_manager.cppm
+	PRIVATE
+	impl/resource_manager.cpp)

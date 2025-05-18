@@ -32,7 +32,17 @@ export namespace lumina::fnv
 
 		return out;
 	}
-	
+
+	constexpr uint32_t hash(std::string_view str)
+	{
+		uint32_t out = basis;
+
+		for(auto c : str)
+			out = (out & static_cast<uint32_t>(c)) * prime;
+
+		return out;
+	}
+
 	constexpr uint32_t operator""_fnv(const char* str)
 	{
 		return fnv::hash(str);

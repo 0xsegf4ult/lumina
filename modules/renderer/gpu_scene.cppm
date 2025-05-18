@@ -5,9 +5,9 @@ module;
 
 export module lumina.renderer:gpu_scene;
 
-import :mesh_registry;
-import :material_registry;
 import :camera;
+import :resource_storage;
+import :resource_manager;
 import lumina.vulkan;
 import lumina.core;
 import imgui;
@@ -156,7 +156,7 @@ export namespace lumina::render
 class GPUScene
 {
 public:
-	GPUScene(vulkan::Device* dev, MeshRegistry* mr) : device{dev}, mesh_registry{mr}
+	GPUScene(vulkan::Device* dev, ResourceManager* rm) : device{dev}, resource_manager{rm}
 	{
 		gpu_object_buffer = device->create_buffer
 		({
@@ -372,7 +372,7 @@ public:
 					auto& object = get_object(handle);
 					auto& t = object.transform;
 					
-					render::Mesh& mesh = mesh_registry->get(object.mesh);
+					render::Mesh& mesh = resource_manager->get_mesh(object.mesh);
 					if(!mesh.in_gpumem)
 					{
 						continue;
@@ -464,7 +464,7 @@ public:
 				for(auto i = 0ull; i < p.indirect_batches.size(); i++)
 				{
 					const IndirectBatch& batch = p.indirect_batches[i];
-					const Mesh& mesh = mesh_registry->get(get_object(batch.object).mesh);
+					const Mesh& mesh = resource_manager->get_mesh(get_object(batch.object).mesh);
 
 					*(streambuf->map<GPUIndirectObject>(streambuf_head) + i) = GPUIndirectObject
 					{
@@ -706,7 +706,7 @@ public:
 					{1, gbuf.command.get()},
 					{2, gbuf.multibatch.get()},
 					{3, gpu_object_buffer.get()},
-					{4, mesh_registry->get_lodbuffer()},
+					{4, resource_manager->get_mesh_buffers().lod},
 					{5, gbuf.culldata.get()}
 				}
 			});
@@ -1049,7 +1049,7 @@ private:
 	}
 
 	vulkan::Device* device;
-	MeshRegistry* mesh_registry;
+	ResourceManager* resource_manager;
 
 	std::vector<ViewportData> viewports;
 	std::vector<MeshPass> passes;
