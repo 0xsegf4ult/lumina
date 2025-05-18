@@ -60,8 +60,10 @@ void main()
 				uint bone = (((sk_vtx.joints >> shift)) & 0xFF);
 
 				p += (bone_matrix[bone + bone_offset] * vec4(pos, 1.0f)) * sk_vtx.weights[i];
-				n += (mat3(bone_matrix[bone + bone_offset]) * nrm) * sk_vtx.weights[i];
-				t += (mat3(bone_matrix[bone + bone_offset]) * tang.xyz) * sk_vtx.weights[i];
+			//	n += (mat3(bone_matrix[bone + bone_offset]) * nrm) * sk_vtx.weights[i];
+			//	t += (mat3(bone_matrix[bone + bone_offset]) * tang.xyz) * sk_vtx.weights[i];
+				n += (nrm * mat3(bone_matrix[bone + bone_offset])) * sk_vtx.weights[i];
+				t += (tang.xyz * mat3(bone_matrix[bone + bone_offset])) * sk_vtx.weights[i];
 
 				wsum += sk_vtx.weights[i];
 			}
@@ -77,10 +79,8 @@ void main()
 		sm_vert_pos[sm_vertex_offset + gID] = sm_vp;
 
 		VertexAttr sm_va;
-	//	sm_va.nrmOct = vec3_to_oct(nrm);
-	//	sm_va.tangentQ = encode_tangent(nrm, tang.xyz, tang.w < 0.0f);
-		sm_va.nrmOct = sk_vtx.nrmOct;
-		sm_va.tangentQ = sk_vtx.tangentQ;
+		sm_va.nrmOct = vec3_to_oct(nrm);
+		sm_va.tangentQ = encode_tangent(nrm, tang.xyz, tang.w < 0.0f);
 		sm_va.uv_x = sk_vtx.uv.x;
 		sm_va.uv_y = sk_vtx.uv.y;
 		sm_vert_attr[sm_vertex_offset + gID] = sm_va;

@@ -8,46 +8,27 @@ vec2 signNotZero(vec2 v)
 	return vec2(signNotZero(v.x), signNotZero(v.y));
 }
 
-uint packSnorm16(float f)
-{
-	return floatBitsToUint(round(clamp(f, -1.0f, 1.0f)) * 32767);
-}
-
 uint vec3_to_oct(vec3 v)
 {
 	float invl1norm = (1.0f) / (abs(v.x) + abs(v.y) + abs(v.z));
-
-	uint x = 0;
-	uint y = 0;
-
+	vec2 proj;
 	if(v.z < 0.0f)
 	{
-		x = packSnorm16((1.0f - abs(v.y * invl1norm)) * signNotZero(v.x));
-		y = packSnorm16((1.0f - abs(v.x * invl1norm)) * signNotZero(v.y));
+		proj.x = (1.0f - abs(v.y * invl1norm)) * signNotZero(v.x);
+		proj.y = (1.0f - abs(v.x * invl1norm)) * signNotZero(v.y);
 	}
 	else
 	{
-		x = packSnorm16(v.x * invl1norm);
-		y = packSnorm16(v.y * invl1norm);
+		proj.x = v.x * invl1norm;
+		proj.y = v.y * invl1norm;
 	}
 
-	uint result = y | x << uint(16);	
-
-	return result;
-}
-
-float unpackSnorm16(float f)
-{
-	return clamp((float(f) / float(32767)) - 1.0, -1.0, 1.0);
+	return packSnorm2x16(proj);
 }
 
 vec3 oct_to_vec3(uint p)
 {
-	uint one = uint(1);
-	uint u = p >> uint(16);
-	uint v = p & ((one << uint(16)) - one);
-
-	vec2 inp = vec2(unpackSnorm16(float(v)), unpackSnorm16(float(u)));	
+	vec2 inp = unpackSnorm2x16(p);
 
 	vec3 vn = vec3(inp.xy, 1.0 - abs(inp.x) - abs(inp.y));
 	if(vn.z < 0.0)
