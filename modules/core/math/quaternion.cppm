@@ -87,25 +87,24 @@ public:
 		}
 	}
 
-	//FIXME: make less explicit?
 	static constexpr auto make_mat3(const basic_quat<T>& quat) noexcept
 	{
 		return Matrix<T, 3, 3>
                 {
                         Vector<T, 3>{
-                                T(1.0) - T(2.0) * quat.y * quat.y - T(2.0) * quat.z * quat.z,
-                                T(2.0) * quat.x * quat.y - T(2.0) * quat.z * quat.w,
-                                T(2.0) * quat.x * quat.z + T(2.0) * quat.y * quat.w
+				T(1.0) - T(2.0) * quat.y * quat.y - T(2.0) * quat.z * quat.z,
+				T(2.0) * quat.x * quat.y + T(2.0) * quat.z * quat.w,
+				T(2.0) * quat.x * quat.z - T(2.0) * quat.y * quat.w,
                         },
                         Vector<T, 3>{
-                                T(2.0) * quat.x * quat.y + T(2.0) * quat.z * quat.w,
-                                T(1.0) - T(2.0) * quat.x * quat.x - T(2.0) * quat.z * quat.z,
-                                T(2.0) * quat.y * quat.z - T(2.0) * quat.x * quat.w
+				T(2.0) * quat.x * quat.y - T(2.0) * quat.z * quat.w,
+				T(1.0) - T(2.0) * quat.x * quat.x - T(2.0) * quat.z * quat.z,
+				T(2.0) * quat.y * quat.z + T(2.0) * quat.x * quat.w,
                         },
                         Vector<T, 3>{
-                                T(2.0) * quat.x * quat.z - T(2.0) * quat.y * quat.w,
-                                T(2.0) * quat.y * quat.z + T(2.0) * quat.x * quat.w,
-                                T(1.0) - T(2.0) * quat.x * quat.x - T(2.0) * quat.y * quat.y
+				T(2.0) * quat.x * quat.z + T(2.0) * quat.y * quat.w,
+				T(2.0) * quat.y * quat.z - T(2.0) * quat.x * quat.w,
+				T(1.0) - T(2.0) * quat.x * quat.x - T(2.0) * quat.y * quat.y,
                         }
 		};
 	}
@@ -116,19 +115,19 @@ public:
 		{
 			Vector<T, 4>{
 				T(1.0) - T(2.0) * quat.y * quat.y - T(2.0) * quat.z * quat.z,
-				T(2.0) * quat.x * quat.y - T(2.0) * quat.z * quat.w,
-				T(2.0) * quat.x * quat.z + T(2.0) * quat.y * quat.w,
-				T(0.0)
-			},
-			Vector<T, 4>{
 				T(2.0) * quat.x * quat.y + T(2.0) * quat.z * quat.w,
-				T(1.0) - T(2.0) * quat.x * quat.x - T(2.0) * quat.z * quat.z,
-				T(2.0) * quat.y * quat.z - T(2.0) * quat.x * quat.w,
+				T(2.0) * quat.x * quat.z - T(2.0) * quat.y * quat.w,
 				T(0.0)
 			},
 			Vector<T, 4>{
-				T(2.0) * quat.x * quat.z - T(2.0) * quat.y * quat.w,
+				T(2.0) * quat.x * quat.y - T(2.0) * quat.z * quat.w,
+				T(1.0) - T(2.0) * quat.x * quat.x - T(2.0) * quat.z * quat.z,
 				T(2.0) * quat.y * quat.z + T(2.0) * quat.x * quat.w,
+				T(0.0)
+			},
+			Vector<T, 4>{
+				T(2.0) * quat.x * quat.z + T(2.0) * quat.y * quat.w,
+				T(2.0) * quat.y * quat.z - T(2.0) * quat.x * quat.w,
 				T(1.0) - T(2.0) * quat.x * quat.x - T(2.0) * quat.y * quat.y,
 				T(0.0)
 			},
