@@ -187,21 +187,21 @@ Vector<uint16_t, 2> vec3_to_oct_snorm(const vec3& input, [[maybe_unused]]bool hi
 	Vector<uint16_t, 2> projected;
 
 	const float invl1norm = (1.0f) / (std::abs(input.x) + std::abs(input.y) + std::abs(input.z));
-
-	auto floored_snorm = [](float f) -> uint16_t
+	
+	auto packSnorm16 = [](float f) -> uint16_t
 	{
-		return static_cast<uint16_t>(std::round(std::clamp(f, -1.0f, 1.0f) * ((uint64_t(1) << 15) - 1))) + 32767;
+		return static_cast<uint16_t>(std::round(std::clamp(f, -1.0f, 1.0f) * 32767.0f));
 	};
 
 	if(input.z < 0.0f)
 	{
-		projected.x = floored_snorm((1.0f - std::abs(input.y * invl1norm)) * signNotZero(input.x));
-		projected.y = floored_snorm((1.0f - std::abs(input.x * invl1norm)) * signNotZero(input.y));
+		projected.x = packSnorm16((1.0f - std::abs(input.y * invl1norm)) * signNotZero(input.x));
+		projected.y = packSnorm16((1.0f - std::abs(input.x * invl1norm)) * signNotZero(input.y));
 	}
 	else
 	{
-		projected.x = floored_snorm(input.x * invl1norm);
-		projected.y = floored_snorm(input.y * invl1norm);
+		projected.x = packSnorm16(input.x * invl1norm);
+		projected.y = packSnorm16(input.y * invl1norm);
 	}
 
 	return projected;
