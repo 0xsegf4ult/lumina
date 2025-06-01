@@ -24,6 +24,17 @@ bool is_depth_format(vk::Format fmt)
 	}
 }
 
+bool is_stencil_format(vk::Format fmt)
+{
+	switch(fmt)
+	{
+	case vk::Format::eS8Uint:
+		return true;
+	default:
+		return false;
+	}
+}
+
 vk::ImageType image_type_from_size([[maybe_unused]]uint32_t w, uint32_t h, uint32_t d)
 {
 	if(d == 1)
@@ -129,7 +140,8 @@ vk::ImageUsageFlags decode_image_usage(ImageUsage usage)
         case ImageUsage::ColorAttachment:
                 return vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferSrc;
         case ImageUsage::DepthAttachment:
-                return vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled;
+       	case ImageUsage::StencilAttachment:
+       		return vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled;
         case ImageUsage::Framebuffer:
 	case ImageUsage::RWGraphics:
 		return vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled;

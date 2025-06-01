@@ -117,7 +117,12 @@ public:
 	{
 		if(v)
 		{
-			if constexpr(std::is_invocable_v<Fn, decltype(*v->begin())>)
+			if constexpr(std::is_invocable_v<Fn, ecs::entity, decltype(*v->begin())>)
+			{
+				for(auto&& pair : v->pair_iterator())
+					func(std::get<0>(pair), std::get<1>(pair));
+			}	
+			else if constexpr(std::is_invocable_v<Fn, decltype(*v->begin())>)
 			{
 				for(auto&& component : *v)
 					func(component);

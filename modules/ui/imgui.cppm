@@ -250,6 +250,7 @@ public:
 		io.DisplayFramebufferScale.y = io.DisplaySize.y / static_cast<float>(fh);
 
 		ImGui::NewFrame();
+		ImGuizmo::BeginFrame();
 
 		for(auto& hook : ui_hooks)
 			hook();

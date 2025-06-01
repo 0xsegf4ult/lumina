@@ -172,7 +172,7 @@ Device::~Device()
 		handle.destroyPipeline(pipe.pipeline);
 	
 	for(auto& [key, layout] : pso_cache.layout_data)
-		handle.destroyPipelineLayout(layout.layout);
+		handle.destroyPipelineLayout(layout.handle);
 	
 	for(auto& [key, dsl] : ds_cache.layout_data)
 		handle.destroyDescriptorSetLayout(dsl);
@@ -455,7 +455,7 @@ ImageViewHandle Device::create_image_view(const ImageViewKey& key)
 		},
 		.subresourceRange = 
 		{
-			is_depth_format(key.format) ? vk::ImageAspectFlagBits::eDepth : vk::ImageAspectFlagBits::eColor,
+			is_depth_format(key.format) ? vk::ImageAspectFlagBits::eDepth : (is_stencil_format(key.format) ? vk::ImageAspectFlagBits::eStencil : vk::ImageAspectFlagBits::eColor),
 			key.level, key.levels,
 			key.layer, key.layers
 		}
@@ -965,7 +965,7 @@ PipelineLayout& Device::get_pipeline_layout(const PipelineLayoutKey& key)
 		};
 
 		auto result = handle.createPipelineLayout(layoutci);
-		layout.layout = result;
+		layout.handle = result;
 		lock.lock();
 		pso_cache.layout_data[key] = layout;
 		return pso_cache.layout_data[key];
@@ -1006,14 +1006,13 @@ Pipeline* Device::try_get_pipeline(const GraphicsPSOKey& key)
 		auto layout_key = build_pipe_layout({shaders.data(), num_shaders});
 		auto& layout = get_pipeline_layout(layout_key);
 
-		auto result = compile_pipeline(handle, layout.layout, {shaders.data(), num_shaders}, key);
+		auto result = compile_pipeline(handle, layout.handle, {shaders.data(), num_shaders}, key);
 		if(!result.has_value())
 			return nullptr;
 
-		pipe.layout = layout.layout;
-		pipe.ds_layouts = layout.ds_layouts;
+		pipe.layout_key = layout_key;
+		pipe.layout = layout;
 		pipe.pipeline = *result;
-		pipe.pconst = layout_key.pconst;
 
 		lock.lock();
 		pso_cache.gfx_data[key] = pipe;
@@ -1043,14 +1042,13 @@ Pipeline* Device::try_get_pipeline(const ComputePSOKey& key)
 		auto layout_key = build_pipe_layout({&sptr, 1});
 		auto& layout = get_pipeline_layout(layout_key);
 
-		auto result = compile_pipeline(handle, layout.layout, sptr, key);
+		auto result = compile_pipeline(handle, layout.handle, sptr, key);
 		if(!result.has_value())
 			return nullptr;
 
-		pipe.layout = layout.layout;
-		pipe.ds_layouts = layout.ds_layouts;
+		pipe.layout_key = layout_key;
+		pipe.layout = layout;
 		pipe.pipeline = *result;
-		pipe.pconst = layout_key.pconst;
 
 		lock.lock();
 		pso_cache.comp_data[key] = pipe;

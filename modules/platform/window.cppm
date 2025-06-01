@@ -201,6 +201,24 @@ public:
 		}
 	}
 
+	void set_mouse_pos(double x, double y)
+	{
+		m_deltaX = 0.0;
+		m_deltaY = 0.0;
+		
+		auto dx = x - m_lastX;
+		auto dy = y - m_lastY;
+		
+		m_lastX = x;
+		m_lastY = y;
+
+		for(auto& [layer, callback] : mouse_move_event_listeners)
+		{
+			if(cur_layer & layer)
+				callback(x, y, dx, dy);
+		}
+	}
+
 	void scroll_input(double dx, double dy)
 	{
 		for(auto& [layer, callback] : scroll_event_listeners)
@@ -260,6 +278,11 @@ public:
 			return false;
 
 		return key_state[k] == KeyState::Down;
+	}
+
+	std::pair<double, double> get_mouse_pos()
+	{
+		return std::make_pair(m_lastX, m_lastY);
 	}
 
 	std::pair<double, double> get_mouse_delta(InputLayer layer = InputLayers::Engine)

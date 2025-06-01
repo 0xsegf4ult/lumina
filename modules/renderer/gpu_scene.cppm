@@ -98,6 +98,7 @@ struct MeshPass
 		vulkan::BufferHandle multibatch;
 		vulkan::BufferHandle indirect;
 		vulkan::BufferHandle command;
+		vulkan::BufferHandle compact_command;
 		vulkan::BufferHandle culldata;
 	};
 
@@ -274,6 +275,14 @@ public:
 				.debug_name = "gpu_commands::" + uid
 			});
 
+			pass.gpu_buffers[i].compact_command = device->create_buffer
+			({
+				.domain = vulkan::BufferDomain::Device,
+				.usage = vulkan::BufferUsage::IndirectBuffer,
+				.size = sizeof(vk::DrawIndexedIndirectCommand) * pass.command_capacity,
+				.debug_name = "gpu_commands::" + uid
+			});
+
 			pass.gpu_buffers[i].culldata = device->create_buffer
 			({
 				.domain = vulkan::BufferDomain::DeviceMapped,
@@ -302,6 +311,15 @@ public:
 
 		dirty_objects.push_back(std::make_pair(rh, false));
 		return rh;
+	}
+
+	void combine_pass_objects(Handle<MeshPass> src, Handle<MeshPass> dst)
+	{
+		auto& spass = get_pass(src);
+		auto& dpass = get_pass(dst);
+
+		for(auto& obj : spass.indirect_batches)
+			dpass.unbatched_objects.push_back(obj.object);	
 	}
 
 	void update_object(Handle<RenderObject> obj, Transform* tf)
@@ -964,6 +982,7 @@ private:
 
 				auto& obj = get_object(handle);
 
+				//uint64_t meshmat = (obj.material >> 32) << 32; 
 				uint64_t meshmat = uint64_t(obj.material) ^ uint64_t(obj.mesh);
 
 				cmd.sort_key = meshmat | (uint64_t(obj.custom_key) << 32);
@@ -1006,7 +1025,30 @@ private:
 				pass.indirect_batches = std::move(new_batches);
 			}
 		}
+/*
+		{
+			ZoneScopedN("draw_sort");
+			std::sort(std::begin(pass.indirect_batches), std::end(pass.indirect_batches), 
+			[this, &pass](const IndirectBatch& lhs, const IndirectBatch& rhs)
+			{
+				if(lhs.sort_key < rhs.sort_key) { return true; }
+				else if(lhs.sort_key == rhs.sort_key)
+				{
+					auto& vp = viewports[pass.viewport - 1];
+					if(!vp.camera)
+						return false;
 
+					float ldist = (get_object(lhs.object).transform.translation - vp.camera->get_pos()).magnitude_sqr();
+					float rdist = (get_object(rhs.object).transform.translation - vp.camera->get_pos()).magnitude_sqr();
+					if(ldist < rdist)
+						return true;
+
+					return false;
+				}
+				else { return false; }
+			});
+		}
+*/
 		{
 			pass.multibatches.clear();
 

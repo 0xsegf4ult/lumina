@@ -3,6 +3,7 @@ module;
 #include <imgui_internal.h>
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h> 
+#include <ImGuizmo.h>
 
 export module imgui;
 
@@ -20,6 +21,7 @@ export namespace ImGui
 	using ImGui::IsItemHovered;
 	using ImGui::IsItemDeactivatedAfterEdit;
 	using ImGui::IsMouseDown;
+	using ImGui::IsMouseReleased;
 	using ImGui::GetWindowWidth;
 	using ImGui::GetWindowHeight;
 	using ImGui::SetNextWindowSize;
@@ -47,6 +49,7 @@ export namespace ImGui
 	using ImGui::TreeNode;
 	using ImGui::TreeNodeEx;
 	using ImGui::TreePop;
+	using ImGui::CollapsingHeader;
 
 	using ImGui::GetForegroundDrawList;
 	using ImGui::GetBackgroundDrawList;
@@ -87,6 +90,19 @@ export namespace ImGui
 	using ImGui::Separator;
 	using ImGui::SeparatorText;
 	using ImGui::Text;
+	using ImGui::TextColored;
+}
+
+export namespace ImGuizmo
+{
+	using ImGuizmo::BeginFrame;
+	using ImGuizmo::SetOrthographic;
+	using ImGuizmo::SetDrawlist;
+	using ImGuizmo::SetRect;
+	using ImGuizmo::IsUsing;
+	using ImGuizmo::Manipulate;
+	using ImGuizmo::OPERATION;
+	using ImGuizmo::LOCAL;
 }
 
 export using ::ImGuiKey;
@@ -107,20 +123,28 @@ export using ::ImGuiWindowFlags_NoScrollbar;
 export using ::ImGuiWindowFlags_NoScrollWithMouse;
 export using ::ImGuiWindowFlags_MenuBar;
 export using ::ImGuiWindowFlags_NoDocking;
+export using ::ImGuiWindowFlags_NoDecoration;
+export using ::ImGuiWindowFlags_NoBackground;
 export using ::ImGuiWindowFlags_NoTitleBar;
 export using ::ImGuiWindowFlags_NoResize;
 export using ::ImGuiWindowFlags_NoMove;
+export using ::ImGuiWindowFlags_NoFocusOnAppearing;
 export using ::ImGuiWindowFlags_NoBringToFrontOnFocus;
+export using ::ImGuiWindowFlags_NoNav;
 export using ::ImGuiWindowFlags_NoNavFocus;
+export using ::ImGuiWindowFlags_NoInputs;
 export using ::ImGuiWindowFlags_AlwaysAutoResize;
+export using ::ImGuiWindowFlags_NoSavedSettings;
 export using ::ImGuiDockNodeFlags;
 export using ::ImGuiDockNodeFlags_None;
 export using ::ImGuiStyleVar;
 export using ::ImGuiStyleVar_WindowRounding;
 export using ::ImGuiStyleVar_WindowBorderSize;
 export using ::ImGuiStyleVar_WindowPadding;
+export using ::ImGuiStyleVar_ItemSpacing;
 export using ::ImGuiMouseButton_Left;
 export using ::ImGuiMouseButton_Right;
+export using ::ImGuiMouseButton_Middle;
 export using ::ImGuiTreeNodeFlags;
 export using ::ImGuiTreeNodeFlags_DefaultOpen;
 export using ::ImGuiTreeNodeFlags_OpenOnArrow;
@@ -133,6 +157,15 @@ export using ::ImGuiSliderFlags;
 export using ::ImGuiSliderFlags_AlwaysClamp;
 export using ::ImGuiSliderFlags_NoInput;
 export using ::ImGuiSliderFlags_Logarithmic;
+export using ::ImGuiInputTextFlags;
+export using ::ImGuiInputTextFlags_None;
+export using ::ImGuiInputTextFlags_EnterReturnsTrue;
+export using ::ImGuiInputTextFlags_CallbackCompletion;
+export using ::ImGuiInputTextFlags_CallbackHistory;
+export using ::ImGuiInputTextFlags_CallbackAlways;
+export using ::ImGuiInputTextFlags_CallbackCharFilter;
+export using ::ImGuiInputTextFlags_ReadOnly;
+export using ::ImGuiInputTextFlags_CallbackResize;
 export using ::ImGuiDataType;
 export using ::ImGuiDataType_S8;
 export using ::ImGuiDataType_U8;

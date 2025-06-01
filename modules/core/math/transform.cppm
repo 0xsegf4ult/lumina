@@ -87,9 +87,10 @@ constexpr std::tuple<Vector<T, 3>, basic_quat<T>, Vector<T, 3>> decompose(Matrix
 		root = std::sqrt(trace + 1.0f);
 		rotation.w = 0.5f * root;
 		root = 0.5f / root;
-		rotation.x = (mat[2][1] - mat[1][2]) * root;
-		rotation.y = (mat[0][2] - mat[2][0]) * root;
-		rotation.z = (mat[1][0] - mat[0][1]) * root;
+
+		rotation.x = (mat[1][2] - mat[2][1]) * root;
+		rotation.y = (mat[2][0] - mat[0][2]) * root;
+		rotation.z = (mat[0][1] - mat[1][0]) * root;
 	}
 	else
 	{
@@ -109,9 +110,10 @@ constexpr std::tuple<Vector<T, 3>, basic_quat<T>, Vector<T, 3>> decompose(Matrix
 		
 		rotation[i] = 0.5f * root;
 		root = 0.5f / root;
-		rotation.w = (mat[k][j] - mat[j][k]) * root;
-		rotation[j] = (mat[j][i] + mat[i][j]) * root;
-		rotation[k] = (mat[k][i] + mat[i][k]) * root;
+		
+		rotation.w = (mat[j][k] - mat[k][j]) * root;
+		rotation[j] = (mat[i][j] + mat[j][i]) * root;
+		rotation[k] = (mat[i][k] + mat[k][i]) * root;
 	}
 	
 	return {translation, rotation, scale};

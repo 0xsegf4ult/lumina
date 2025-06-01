@@ -12,6 +12,7 @@ class Device;
 class Image;
 
 bool is_depth_format(vk::Format fmt);
+bool is_stencil_format(vk::Format fmt);
 vk::ImageType image_type_from_size([[maybe_unused]]uint32_t w, uint32_t h, uint32_t d);
 vk::ImageViewType get_imageview_type(vk::ImageType type);
 uint32_t get_mip_levels(uint32_t w, uint32_t h);
@@ -69,6 +70,7 @@ enum class ImageUsage
 	TransferDest,
 	ColorAttachment,
 	DepthAttachment,
+	StencilAttachment,
 	Framebuffer,
 	MSAAFramebuffer,
 	CubemapRead,

@@ -88,7 +88,7 @@ void CommandBuffer::pipeline_barrier(array_proxy<ImageBarrier> bar)
 		vb[i].image = bar[i].image->get_handle();
 		vb[i].subresourceRange = 
 		{
-			is_depth_format(bar[i].image->get_key().format) ? vk::ImageAspectFlagBits::eDepth : vk::ImageAspectFlagBits::eColor,
+			is_depth_format(bar[i].image->get_key().format) ? vk::ImageAspectFlagBits::eDepth : (is_stencil_format(bar[i].image->get_key().format) ? vk::ImageAspectFlagBits::eStencil : vk::ImageAspectFlagBits::eColor),
 			bar[i].subresource.level, bar[i].subresource.levels,
 			bar[i].subresource.layer, bar[i].subresource.layers
 		};
@@ -105,6 +105,7 @@ void CommandBuffer::begin_render_pass(const RenderPassDesc& rp)
 {
 	std::array<vk::RenderingAttachmentInfo, max_attachments> attachments;
 	vk::RenderingAttachmentInfo depth;
+	vk::RenderingAttachmentInfo stencil;
 
 	vk::RenderingInfo render_info;
 	render_info.renderArea = rp.render_area;
@@ -113,21 +114,22 @@ void CommandBuffer::begin_render_pass(const RenderPassDesc& rp)
 
 	uint32_t att_count = 0;
 	bool has_depth = false;
+	bool has_stencil = false;
 
 	for(auto& att : rp.attachments)
 	{
-		if(att_count == max_attachments)
-			throw std::logic_error("begin_render_pass: render pass has too many color attachments!");
+		assert(att_count < max_attachments && "render pass has too many color attachments!");
 
 		if(!att.resource)
 			continue;
 
 		bool is_depth = is_depth_format(att.resource->get_key().format);
 		has_depth = (render_info.pDepthAttachment != nullptr);
+		has_stencil = (render_info.pStencilAttachment != nullptr);
 		if(is_depth)
 		{	
-			if(has_depth)
-				throw std::logic_error("begin_render_pass: render pass cannot have multiple depth attachments");
+			assert(!has_depth && "render pass cannot have multiple depth attachments");
+			assert(!has_stencil && "render pass cannot have seperate depth and stencil attachments");
 
 			depth.imageView = att.resource->get_handle();
 			depth.imageLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
@@ -143,6 +145,24 @@ void CommandBuffer::begin_render_pass(const RenderPassDesc& rp)
 			}
 
 			render_info.pDepthAttachment = &depth;
+			continue;
+		}
+
+		bool is_stencil = is_stencil_format(att.resource->get_key().format);
+		if(is_stencil)
+		{
+			assert(!has_stencil && "render pass cannot have multiple stencil attachments");
+			assert(!has_depth && "render pass cannot have seperate depth and stencil attachments");
+
+			stencil.imageView = att.resource->get_handle();
+			stencil.imageLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
+			stencil.loadOp = att.load_op;
+			stencil.storeOp = att.store_op;
+			stencil.clearValue = {.depthStencil={0.0f, static_cast<uint32_t>(att.clear)}};
+	
+			assert(!att.resolve && "resolve unsupported for stencil attachments");	
+
+			render_info.pStencilAttachment = &stencil;
 			continue;
 		}
 
@@ -235,7 +255,7 @@ void CommandBuffer::push_constant(void* value, uint32_t size)
 	assert(value);
 	assert(size);
 	assert(bound_pipe);
-	cmd.pushConstants(bound_pipe->layout, bound_pipe->pconst.stageFlags, 0, size, value);
+	cmd.pushConstants(bound_pipe->layout.handle, bound_pipe->layout_key.pconst.stageFlags, 0, size, value);
 }	
 
 void CommandBuffer::bind_descriptor_sets(array_proxy<DescriptorSet> sets)
@@ -248,11 +268,12 @@ void CommandBuffer::bind_descriptor_sets(array_proxy<DescriptorSet> sets)
 
 	for(const auto& set : sets)
 	{
+		assert(set.bindpoint > 0 && "bindpoint 0 is reserved for push descriptor");
 		ds[count++] = set.set;
 		min_set = std::min(min_set, set.bindpoint);
 	}
 
-	cmd.bindDescriptorSets(is_compute_pso ? vk::PipelineBindPoint::eCompute : vk::PipelineBindPoint::eGraphics, bound_pipe->layout, min_set, {count, ds.data()}, {});
+	cmd.bindDescriptorSets(is_compute_pso ? vk::PipelineBindPoint::eCompute : vk::PipelineBindPoint::eGraphics, bound_pipe->layout.handle, min_set, {count, ds.data()}, {});
 }
 
 void CommandBuffer::push_descriptor_set(const DescriptorSetPush& set)
@@ -309,7 +330,8 @@ void CommandBuffer::push_descriptor_set(const DescriptorSetPush& set)
 
 	for(auto& sa : set.storage_image_arrays)
 	{
-		assert(num_imageinfo + sa.views.size() < 16);
+		auto binding_size = bound_pipe->layout_key.dsl_keys[0].binding_arraysize[sa.bindpoint];
+		assert(num_imageinfo + binding_size < 16);
 		for(auto i = 0u; i < sa.views.size(); i++)
 		{
 			image_info[num_imageinfo + i] =
@@ -319,15 +341,23 @@ void CommandBuffer::push_descriptor_set(const DescriptorSetPush& set)
 			};
 		}
 
+		for(auto i = sa.views.size(); i < binding_size; i++)
+		{
+			image_info[num_imageinfo + i] =
+			{
+				.imageView = nullptr
+			};
+		}
+
 		ds_writes[num_writes++] =
 		{
 			.dstBinding = sa.bindpoint,
-			.descriptorCount = static_cast<uint32_t>(sa.views.size()),
+			.descriptorCount = binding_size,
 			.descriptorType = vk::DescriptorType::eStorageImage,
 			.pImageInfo = &image_info[num_imageinfo]
 		};
 
-		num_imageinfo += sa.views.size();
+		num_imageinfo += binding_size;
 	}
 
 	for(auto& si : set.separate_images)
@@ -409,7 +439,7 @@ void CommandBuffer::push_descriptor_set(const DescriptorSetPush& set)
 		num_bufferinfo++;
 	}
 
-	cmd.pushDescriptorSetKHR(is_compute_pso ? vk::PipelineBindPoint::eCompute : vk::PipelineBindPoint::eGraphics, bound_pipe->layout, 0, {num_writes, ds_writes.data()});
+	cmd.pushDescriptorSetKHR(is_compute_pso ? vk::PipelineBindPoint::eCompute : vk::PipelineBindPoint::eGraphics, bound_pipe->layout.handle, 0, {num_writes, ds_writes.data()});
 }
 
 void CommandBuffer::bind_vertex_buffers(array_proxy<Buffer*> buffers)

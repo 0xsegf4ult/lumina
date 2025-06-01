@@ -240,7 +240,8 @@ public:
 					.depthClamp = true,
 					.fillModeNonSolid = true,
 					.samplerAnisotropy = true,
-					.textureCompressionBC = true
+					.textureCompressionBC = true,
+					.fragmentStoresAndAtomics = true
 				}
 
 			},

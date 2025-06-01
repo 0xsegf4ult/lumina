@@ -17,3 +17,6 @@
 [submodule "external/tracy"]
 	path = external/tracy
 	url = https://github.com/wolfpld/tracy
+[submodule "external/imgui-port/ImGuizmo"]
+	path = external/imgui-port/ImGuizmo
+	url = https://github.com/CedricGuillemet/ImGuizmo

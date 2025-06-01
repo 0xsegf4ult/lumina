@@ -16,27 +16,20 @@ void draw_device_overlay(platform::Window& window, vulkan::Device& device, uvec2
 {
 	auto [w, h] = window.get_extent();
 	float fps = ImGui::GetIO().Framerate;
-	ImDrawList* draw = ImGui::GetForegroundDrawList();
-
-	char buf[128];
+	static bool p_open = true;
+	ImGui::SetNextWindowPos(ImVec2(root.x, root.y), ImGuiCond_Always);
+	ImGuiWindowFlags wflags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoInputs;
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(1.0f, 1.0f));
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(1.0f, 1.0f));
+	ImGui::Begin("device_overlay", &p_open, wflags);
 
 	auto [usage, budget] = device.get_memory_budget();
 	auto [uv, uu] = log::pretty_format_size(usage);
 	auto [bv, bu] = log::pretty_format_size(budget);
 
-	std::uint32_t cur_y = root.y;
-
-	std::format_to(buf, "lumina::engine git-{}{}", config::git_hash, '\0');
-	draw->AddText(ImVec2(root.x, cur_y), ImColor(255, 255, 255, 255), buf);
-	cur_y += ImGui::GetTextLineHeight();
-
-	std::format_to(buf, "{}{}", device.get_name().data(), '\0');
-	draw->AddText(ImVec2(root.x, cur_y), ImColor(255, 255, 255, 255), buf);
-	cur_y += ImGui::GetTextLineHeight();
-
-	std::format_to(buf, "vmem: {:.2f}{} / {:.2f}{}{}", uv, uu, bv, bu, '\0');
-	draw->AddText(ImVec2(root.x, cur_y), ImColor(255, 255, 255, 255), buf);
-	cur_y += ImGui::GetTextLineHeight();
+	ImGui::Text("lumina::engine git-%s", config::git_hash);
+	ImGui::Text("%s", device.get_name().data());
+	ImGui::Text("vmem: %.2f%s / %.2f%s", uv, uu.data(), bv, bu.data());
 
 	ImColor fps_color = ImColor(20, 220, 20, 255);
 	if(fps < 45.0f)
@@ -44,26 +37,22 @@ void draw_device_overlay(platform::Window& window, vulkan::Device& device, uvec2
 	else if(fps < 59.0f)
 		fps_color = ImColor(180, 220, 20, 255);
 
-	std::format_to(buf, "{:.0f} FPS ({:.2f} mspf){}", fps, 1000.0f / fps, '\0');
-	draw->AddText(ImVec2(root.x, cur_y), fps_color, buf);
-	cur_y += ImGui::GetTextLineHeight();
+	ImGui::TextColored(fps_color, "%.0f FPS (%.2f mspf)", fps, 1000.0f / fps);
 
 	auto evt_data = device.get_perf_events();
+
 	float wt = 0.0f;
 	for(auto& evt : evt_data)
 	{
-		std::format_to(buf, "{}: {:.2f}ms{}", evt.name, evt.time, '\0');
-		draw->AddText(ImVec2(root.x, cur_y), ImColor(255, 255, 255, 255), buf);
-		cur_y += ImGui::GetTextLineHeight();
+		ImGui::Text("%s: %.2fms", evt.name.data(), evt.time);
 		wt += evt.time;
 	}
 
 	if(wt != 0.0f)
-	{
-		std::format_to(buf, "workload time: {:.2f}ms{}", wt, '\0');
-		draw->AddText(ImVec2(root.x, cur_y), ImColor(255, 255, 255, 255), buf);
-		cur_y += ImGui::GetTextLineHeight();
-	}
+		ImGui::Text("workload time: %.2fms", wt);
+
+	ImGui::End();
+	ImGui::PopStyleVar(2);
 }
 
 }

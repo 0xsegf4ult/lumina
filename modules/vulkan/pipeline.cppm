@@ -105,6 +105,43 @@ constexpr vk::CompareOp depth_mode_compare_op(DepthMode mode)
 	}
 }
 
+export enum class StencilMode
+{
+	Disabled,
+	WriteAlways,
+	ReadEqual,
+	ReadNotEqual
+};
+
+constexpr vk::StencilOpState stencil_mode_state(StencilMode mode)
+{
+	vk::StencilOpState state{};
+
+	using enum StencilMode;
+	
+	state.failOp = vk::StencilOp::eKeep;
+	state.passOp = vk::StencilOp::eReplace;
+	state.depthFailOp = vk::StencilOp::eKeep;
+	state.compareMask = 0xFFu;
+	state.reference = 1u;
+	if(mode == WriteAlways)
+	{
+		state.compareOp = vk::CompareOp::eAlways;
+		state.writeMask = 0xFFu;
+	}
+	else
+	{
+		if(mode == ReadEqual)
+			state.compareOp = vk::CompareOp::eEqual;
+		else if(mode == ReadNotEqual)
+			state.compareOp = vk::CompareOp::eNotEqual;
+
+		state.writeMask = 0u;
+	}
+
+	return state;
+}
+
 export enum class BlendMode
 {
 	Disabled,
@@ -166,12 +203,14 @@ export struct GraphicsPSOKey
 	PrimitiveState primitive{};
 	VertexDescription vert_desc{};
 	DepthMode depth_mode{DepthMode::Disabled};
+	StencilMode stencil_mode{StencilMode::Disabled};
 	MultisampleMode multisample_mode{MultisampleMode::Disabled};
 	std::array<BlendMode, max_color_attachments> blend_modes{};
 	struct AttachmentFormats
 	{
 		std::array<vk::Format, max_color_attachments> color{};
 		vk::Format depth = vk::Format::eUndefined;
+		vk::Format stencil = vk::Format::eUndefined;
 	} att_formats;
 	uint32_t view_mask = 0u;
 	std::array<std::filesystem::path, max_shader_stages> shaders{};
@@ -225,7 +264,7 @@ export struct PipelineLayoutKey
 
 export struct PipelineLayout
 {
-	vk::PipelineLayout layout;
+	vk::PipelineLayout handle;
 	std::array<vk::DescriptorSetLayout, max_descriptor_sets> ds_layouts;
 };
 
@@ -275,9 +314,8 @@ export PipelineLayoutKey build_pipe_layout(std::span<Shader*> shaders)
 export struct Pipeline
 {
 	vk::Pipeline pipeline;
-	vk::PipelineLayout layout;
-	std::array<vk::DescriptorSetLayout, max_descriptor_sets> ds_layouts;
-	vk::PushConstantRange pconst;
+	PipelineLayoutKey layout_key;	
+	PipelineLayout layout;
 	std::array<Handle<Shader>, max_shader_stages> shaders{};
 };
 
@@ -310,7 +348,8 @@ export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk:
 		.viewMask = key.view_mask,
 		.colorAttachmentCount = num_color_attachments,
 		.pColorAttachmentFormats = key.att_formats.color.data(),
-		.depthAttachmentFormat = key.att_formats.depth
+		.depthAttachmentFormat = key.att_formats.depth,
+		.stencilAttachmentFormat = key.att_formats.stencil
 	};
 
 	std::array<vk::VertexInputBindingDescription, max_vertex_bindings> vbindings;
@@ -399,8 +438,15 @@ export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk:
 		.depthWriteEnable = (key.att_formats.depth != vk::Format::eUndefined && key.depth_mode != DepthMode::Equal) ? true : false,
 		.depthCompareOp = (key.att_formats.depth != vk::Format::eUndefined) ? depth_mode_compare_op(key.depth_mode) : vk::CompareOp::eAlways,
 		.depthBoundsTestEnable = false,
-		.stencilTestEnable = false
+		.stencilTestEnable = (key.att_formats.stencil != vk::Format::eUndefined && key.stencil_mode != StencilMode::Disabled) ? true : false
 	};
+
+	if(key.stencil_mode != StencilMode::Disabled)
+	{
+		auto state = stencil_mode_state(key.stencil_mode);
+		depthstencil.front = state;
+		depthstencil.back = state;
+	}
 
 	std::array<vk::PipelineColorBlendAttachmentState, max_color_attachments> blend_att;
 	for(uint32_t i = 0; i < num_color_attachments; i++)
