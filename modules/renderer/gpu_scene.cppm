@@ -64,6 +64,7 @@ export struct CullingData
 	int forced_lod{0};
 	float lod_base{10.0f};
 	float lod_step{1.5f};
+	bool compact_drawcalls{true};
 };
 
 export struct RenderObject
@@ -91,13 +92,17 @@ struct MeshPass
 	std::vector<Multibatch> multibatches{};
 
 	size_t multibatch_capacity = 32;
-	size_t command_capacity = 65536;
+	size_t command_capacity = 4096;
+
+	std::array<uint32_t, 16> intermediate_sizes;
 
 	struct GPUBuffers
 	{
 		vulkan::BufferHandle multibatch;
 		vulkan::BufferHandle indirect;
 		vulkan::BufferHandle command;
+		vulkan::BufferHandle visibility_main;
+		std::vector<vulkan::BufferHandle> visibility;
 		vulkan::BufferHandle compact_command;
 		vulkan::BufferHandle culldata;
 	};
@@ -275,6 +280,46 @@ public:
 				.debug_name = "gpu_commands::" + uid
 			});
 
+			pass.gpu_buffers[i].visibility_main = device->create_buffer
+			({
+				.domain = vulkan::BufferDomain::Device,
+				.usage = vulkan::BufferUsage::StorageBuffer,
+				.size = sizeof(uint32_t) * pass.command_capacity,
+				.debug_name = "gpu_visibility::" + uid
+			});
+
+			pass.gpu_buffers[i].visibility.push_back(
+			device->create_buffer
+			({
+				.domain = vulkan::BufferDomain::Device,
+				.usage = vulkan::BufferUsage::StorageBuffer,
+				.size = sizeof(uint32_t) * pass.command_capacity,
+				.debug_name = "gpu_visibility::" + uid
+			}));
+
+			uint32_t n = (pass.command_capacity / 256) + 1;
+			while(n > 1)
+			{
+				pass.gpu_buffers[i].visibility.push_back(
+				device->create_buffer
+				({
+					.domain = vulkan::BufferDomain::Device,
+					.usage = vulkan::BufferUsage::StorageBuffer,
+					.size = sizeof(uint32_t) * n,
+					.debug_name = "prefix_scan_intermediate::" + uid
+				}));
+				n = (n / 256) + 1;
+			}
+
+			pass.gpu_buffers[i].visibility.push_back(
+			device->create_buffer
+			({
+				.domain = vulkan::BufferDomain::Device,
+				.usage = vulkan::BufferUsage::StorageBuffer,
+				.size = sizeof(uint32_t),
+				.debug_name = "prefix_scan_intermediate::" + uid
+			}));
+
 			pass.gpu_buffers[i].compact_command = device->create_buffer
 			({
 				.domain = vulkan::BufferDomain::Device,
@@ -364,13 +409,28 @@ public:
 
 		uint32_t batchID = static_cast<uint32_t>(batch - pass.multibatches.data());
 
-		cmd.vk_object().drawIndexedIndirect
-		(
-			pass.gpu_buffers[device->current_frame_index()].command->handle,
-			batch->first * sizeof(vk::DrawIndexedIndirectCommand),
-			batch->count,
-			sizeof(vk::DrawIndexedIndirectCommand)
-		);
+		if(pass.cull_data.compact_drawcalls)
+		{
+			cmd.vk_object().drawIndexedIndirectCount
+			(
+				pass.gpu_buffers[device->current_frame_index()].compact_command->handle,
+				batch->first * sizeof(vk::DrawIndexedIndirectCommand),
+				pass.gpu_buffers[device->current_frame_index()].multibatch->handle,
+				batchID * sizeof(GPUMultibatch) + __builtin_offsetof(GPUMultibatch, draw_count),
+				batch->count,
+				sizeof(vk::DrawIndexedIndirectCommand)
+			);
+		}
+		else
+		{
+			cmd.vk_object().drawIndexedIndirect
+			(
+				pass.gpu_buffers[device->current_frame_index()].command->handle,
+				batch->first * sizeof(vk::DrawIndexedIndirectCommand),
+				batch->count,
+				sizeof(vk::DrawIndexedIndirectCommand)
+			);
+		}
 
 		return true;
 	}
@@ -437,12 +497,10 @@ public:
 
 			auto cwb = device->submit(cb, vulkan::submit_signal_timeline);
 			device->wait_timeline(vulkan::Queue::Graphics, cwb);
-			log::debug("copying {} objects to gpu", dirty_objects.size());
 			std::erase_if(dirty_objects, [](const std::pair<Handle<RenderObject>, bool>& elem)
 			{
 				return elem.second;
 			});
-			log::debug("remaining {} objects", dirty_objects.size());
 		}
 		streambuf_head = 0;
 
@@ -725,7 +783,8 @@ public:
 					{2, gbuf.multibatch.get()},
 					{3, gpu_object_buffer.get()},
 					{4, resource_manager->get_mesh_buffers().lod},
-					{5, gbuf.culldata.get()}
+					{5, gbuf.culldata.get()},
+					{6, gbuf.visibility_main.get()}
 				}
 			});
 
@@ -736,7 +795,7 @@ public:
 					.sampled_images =
 					{
 						{
-						6,
+						7,
 						vp.depth_pyramid->get_default_view(),
 						pass.cull_data.is_ortho ? dp_sampler_max : dp_sampler,
 						vk::ImageLayout::eGeneral
@@ -745,7 +804,7 @@ public:
 				});
 			}
 
-			cmd.dispatch((static_cast<uint32_t>(pass.indirect_batches.size()) / 32u) + 1u, 1u, 1u);
+			cmd.dispatch((static_cast<uint32_t>(pass.indirect_batches.size()) / 256u) + 1u, 1u, 1u);
 
 			if(vp.zbuf)
 			{
@@ -770,10 +829,146 @@ public:
 			{
 			.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
 			.src_access = vk::AccessFlagBits2::eShaderWrite,
+			.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
+			.dst_access = vk::AccessFlagBits2::eShaderRead
+			}
+		});
+		
+	
+		for(auto& pass : passes)
+		{
+			if(pass.multibatches.empty())
+				continue;
+			
+			if(!pass.cull_data.compact_drawcalls)
+				continue;
+			
+			auto& gbuf = pass.gpu_buffers[device->current_frame_index()];
+
+			auto psize = static_cast<uint32_t>(pass.indirect_batches.size());
+		
+			cmd.bind_pipeline({"prefix_scan_index.comp"});
+			cmd.push_descriptor_set
+			({
+				.storage_buffers = 
+				{
+					{0, gbuf.visibility_main.get()},
+					{1, gbuf.visibility[0].get()},
+					{2, gbuf.visibility[1].get()}
+				}
+			});
+
+			pass.intermediate_sizes[0] = psize;
+			cmd.push_constant(&psize, sizeof(uint32_t));
+			psize = (psize / 256u) + 1;
+			cmd.dispatch(psize, 1u, 1u);
+				
+			cmd.memory_barrier
+			({
+				{
+				.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
+				.src_access = vk::AccessFlagBits2::eShaderWrite,
+				.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
+				.dst_access = vk::AccessFlagBits2::eShaderRead
+				}
+			});
+
+			for(uint32_t i = 1; i < gbuf.visibility.size() - 1; i++)
+			{
+				if(i > 1)
+					cmd.bind_pipeline({"prefix_scan_index.comp"});
+
+				cmd.push_descriptor_set
+				({
+					.storage_buffers =
+					{
+						{0, gbuf.visibility[i].get()},
+						{1, gbuf.visibility[i].get()},
+						{2, gbuf.visibility[i + 1].get()}
+					}
+				});
+
+				pass.intermediate_sizes[i] = psize;
+				cmd.push_constant(&psize, sizeof(uint32_t));
+				psize = (psize / 256u) + 1;
+				cmd.dispatch(psize, 1u, 1u);
+
+				cmd.memory_barrier
+				({
+					{
+					.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
+					.src_access = vk::AccessFlagBits2::eShaderWrite,
+					.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
+					.dst_access = vk::AccessFlagBits2::eShaderRead
+					}
+				});
+
+				cmd.bind_pipeline({"prefix_scan_add_partial.comp"});
+
+				cmd.push_descriptor_set
+				({
+					.storage_buffers =
+					{
+						{0, gbuf.visibility[i].get()},
+						{1, gbuf.visibility[i - 1].get()}
+					}
+				});
+
+				cmd.push_constant(&pass.intermediate_sizes[i - 1], sizeof(uint32_t));
+				cmd.dispatch(pass.intermediate_sizes[i], 1u, 1u);
+				
+				cmd.memory_barrier
+				({
+					{
+					.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
+					.src_access = vk::AccessFlagBits2::eShaderWrite,
+					.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
+					.dst_access = vk::AccessFlagBits2::eShaderRead
+					}
+				});
+			}
+		}
+
+		cmd.bind_pipeline({"compact_drawcalls.comp"});
+		
+		for(auto& pass : passes)
+		{
+			if(pass.multibatches.empty())
+				continue;
+
+			if(!pass.cull_data.compact_drawcalls)
+				continue;
+
+			auto& gbuf = pass.gpu_buffers[device->current_frame_index()];
+			auto psize = static_cast<uint32_t>(pass.indirect_batches.size());
+
+			cmd.push_descriptor_set
+			({
+				.storage_buffers =
+				{
+					{0, gbuf.command.get()},
+					{1, gbuf.compact_command.get()},
+					{2, gbuf.visibility[0].get()},
+					{3, gbuf.visibility_main.get()},
+					{4, gbuf.multibatch.get()},
+					{5, gbuf.indirect.get()}
+				}
+			});
+
+			cmd.push_constant(&psize, sizeof(uint32_t));
+			cmd.dispatch((psize / 256u) + 1u, 1u, 1u);
+		}
+
+		cmd.memory_barrier
+		({
+			{
+			.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
+			.src_access = vk::AccessFlagBits2::eShaderWrite,
 			.dst_stage = vk::PipelineStageFlagBits2::eDrawIndirect,
 			.dst_access = vk::AccessFlagBits2::eIndirectCommandRead
 			}
 		});
+
 		device->end_perf_event(cmd);
 		device->submit(cmd);
 	}
@@ -956,6 +1151,7 @@ public:
                         ImGui::Text("%s: unbatched %zu, cmd %zu, multibatch %zu", to_cstring(pass.type), pass.unbatched_objects.size(), pass.indirect_batches.size(), pass.multibatches.size());
                         ImGui::Checkbox("frustum culling", &pass.cull_data.frustum_cull);
                         ImGui::Checkbox("occlusion culling", &pass.cull_data.occlusion_cull);
+			ImGui::Checkbox("drawcall compaction", &pass.cull_data.compact_drawcalls);
                         ImGui::SliderInt("forced lod", &pass.cull_data.forced_lod, -1, 4);
                         ImGui::DragFloat("lod base", &pass.cull_data.lod_base, 0.01f, 0.0f, 10.0f);
                         ImGui::DragFloat("lod step", &pass.cull_data.lod_step, 0.01f, 0.0f, 5.0f);

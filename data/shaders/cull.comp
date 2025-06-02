@@ -5,7 +5,7 @@
 
 #include "shaders/gpu_scene.glsl"
 
-layout (local_size_x = 32) in;
+layout (local_size_x = 256) in;
 
 layout(std430, binding = 0) readonly buffer InputBuffer
 {
@@ -48,7 +48,12 @@ layout(std430, binding = 5) buffer CullingBuffer
 	uint global_draw_count;
 } culling_data;
 
-layout (binding = 6) uniform sampler2D depthPyramid;
+layout(std430, binding = 6) writeonly buffer VisibilityBuffer
+{
+	uint visibility[];
+};
+
+layout (binding = 7) uniform sampler2D depthPyramid;
 
 bool projectSphere(vec3 c, float r, float znear, float p00, float p11, out vec4 aabb)
 {
@@ -127,11 +132,13 @@ void main()
 	if(gID < multibatches[batchID].first + multibatches[batchID].count)
 	{
 		bool visible = is_visible(gID);
+		visibility[gID] = uint(visible);
 
 		if(visible)
 		{
+			atomicAdd(multibatches[batchID].draw_count, 1);
 			vec3 center = gpu_objects[gpu_indirect_objects[gID].object].sphere.xyz;	
-			
+
 			float mesh_dist = distance(center, culling_data.cam_pos.xyz);
 			uint lodIndex = uint(max(1.0f + log(mesh_dist / culling_data.lod_base) / log(culling_data.lod_step), 0.0));
 
