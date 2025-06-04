@@ -420,7 +420,6 @@ export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk:
 		.depthClampEnable = (key.depth_mode == DepthMode::Shadowcast) ? true : false,
 		.rasterizerDiscardEnable = false,
 		.polygonMode = key.primitive.polymode,
-		.cullMode = key.primitive.cullmode,
 		.frontFace = vk::FrontFace::eCounterClockwise,
 		.depthBiasEnable = false,
 		.lineWidth = 1.0f
@@ -462,9 +461,10 @@ export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk:
 	std::array<vk::DynamicState, 3> dsenables
 	{
 		vk::DynamicState::eViewport,
-		vk::DynamicState::eScissor
+		vk::DynamicState::eScissor,
+		vk::DynamicState::eCullMode
 	};
-	uint32_t num_dstates = 2;
+	uint32_t num_dstates = 3;
 
 	vk::PipelineDynamicStateCreateInfo dynamic_state
 	{

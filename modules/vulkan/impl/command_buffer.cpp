@@ -237,7 +237,8 @@ void CommandBuffer::bind_pipeline(const GraphicsPSOKey& key)
 		return;
 
 	is_compute_pso = false;
-	cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, bound_pipe->pipeline);	
+	cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, bound_pipe->pipeline);
+	cmd.setCullMode(key.primitive.cullmode);	
 }
 
 void CommandBuffer::bind_pipeline(const ComputePSOKey& key)
