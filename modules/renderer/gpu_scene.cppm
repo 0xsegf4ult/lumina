@@ -29,11 +29,20 @@ struct IndirectBatch
 	uint64_t sort_key;
 };
 
+export enum class RenderBucket
+{
+	Default,
+	DoubleSided,
+	OpaqueAlphaMask,
+	OpaqueAlphaMaskDoubleSided,
+};
+
 export struct Multibatch
 {
 	uint32_t first;
 	uint32_t count;
 	Handle<MaterialTemplate> pipeline;
+	RenderBucket bucket;
 };
 
 export struct ViewportData
@@ -65,6 +74,7 @@ export struct CullingData
 	float lod_base{10.0f};
 	float lod_step{1.5f};
 	bool compact_drawcalls{true};
+	bool sort_drawcalls{false};
 };
 
 export struct RenderObject
@@ -72,6 +82,7 @@ export struct RenderObject
 	Handle<Mesh> mesh;
 	Handle64<Material> material;
 	Transform transform;
+	RenderBucket bucket;
 	uint32_t custom_key;
 };
 
@@ -153,6 +164,8 @@ struct GPUCullingData
 	uint32_t global_draw_count;
 };
 
+export using MaterialBucketFilter = std::function<RenderBucket(Handle64<Material>)>;
+
 }
 
 export namespace lumina::render
@@ -171,7 +184,7 @@ public:
 			.size = sizeof(GPUObjectData) * initial_object_capacity,
 			.debug_name = "GPUScene::object_buffer"
 		});
-
+	
 		streambuf = device->create_buffer
 		({
 			.domain = vulkan::BufferDomain::Host,
@@ -340,8 +353,23 @@ public:
 		return Handle<MeshPass>{static_cast<uint32_t>(passes.size())};
 	}
 
+	void register_material_bucket_filter(Handle<MaterialTemplate> tmp, MaterialBucketFilter&& filter)
+	{
+		mtl_bucket_filters[tmp] = std::move(filter);
+	}
+
+	RenderBucket determine_object_bucket(const RenderObject& obj)
+	{
+		auto tmp = template_from_material(obj.material);
+		if(!mtl_bucket_filters.contains(tmp))
+			return RenderBucket::Default;
+
+		return mtl_bucket_filters[tmp](obj.material);
+	}
+
 	Handle<RenderObject> register_object(RenderObject&& obj, array_proxy<Handle<MeshPass>> passes)
 	{
+		obj.bucket = determine_object_bucket(obj); 
 		renderables.push_back(obj);
 
 		Handle<RenderObject> rh{static_cast<uint32_t>(renderables.size())};
@@ -388,22 +416,22 @@ public:
 		return gpu_object_buffer.get();
 	}
 
-	Multibatch* fetch_batch(Handle<MeshPass> mp, Handle<MaterialTemplate> pipe)
+	Multibatch* fetch_batch(Handle<MeshPass> mp, Handle<MaterialTemplate> pipe, RenderBucket bucket)
 	{
 		for(auto& mb : get_pass(mp).multibatches)
 		{
-			if(mb.pipeline == pipe)
+			if(mb.pipeline == pipe && mb.bucket == bucket)
 				return &mb;
 		}
 
 		return nullptr;
 	}
 
-	bool render_batch(vulkan::CommandBuffer& cmd, Handle<MeshPass> mp, Handle<MaterialTemplate> pipe)
+	bool render_batch(vulkan::CommandBuffer& cmd, Handle<MeshPass> mp, Handle<MaterialTemplate> pipe, RenderBucket bucket)
 	{
 		MeshPass& pass = get_pass(mp);
 
-		Multibatch* batch = fetch_batch(mp, pipe);
+		Multibatch* batch = fetch_batch(mp, pipe, bucket);
 		if(!batch)
 			return false;
 
@@ -731,12 +759,8 @@ public:
 
 		cmd.bind_pipeline({"cull.comp"});
 
-		for(auto& pass : passes)
+		for(auto& vp : viewports)
 		{
-			if(pass.multibatches.empty())
-				continue;
-
-			auto& vp = viewports[pass.viewport - 1];
 			if(vp.zbuf)
 			{
 				if(vp.needs_barrier)
@@ -770,7 +794,16 @@ public:
 						}
 					});
 				}
+			
 			}
+		}
+
+		for(auto& pass : passes)
+		{
+			if(pass.multibatches.empty())
+				continue;
+
+			auto& vp = viewports[pass.viewport - 1];
 
 			auto& gbuf = pass.gpu_buffers[device->current_frame_index()];
 
@@ -805,7 +838,10 @@ public:
 			}
 
 			cmd.dispatch((static_cast<uint32_t>(pass.indirect_batches.size()) / 256u) + 1u, 1u, 1u);
+		}
 
+		for(auto& vp : viewports)
+		{
 			if(vp.zbuf)
 			{
 				cmd.pipeline_barrier
@@ -1152,6 +1188,7 @@ public:
                         ImGui::Checkbox("frustum culling", &pass.cull_data.frustum_cull);
                         ImGui::Checkbox("occlusion culling", &pass.cull_data.occlusion_cull);
 			ImGui::Checkbox("drawcall compaction", &pass.cull_data.compact_drawcalls);
+			ImGui::Checkbox("sort drawcalls", &pass.cull_data.sort_drawcalls);
                         ImGui::SliderInt("forced lod", &pass.cull_data.forced_lod, -1, 4);
                         ImGui::DragFloat("lod base", &pass.cull_data.lod_base, 0.01f, 0.0f, 10.0f);
                         ImGui::DragFloat("lod step", &pass.cull_data.lod_step, 0.01f, 0.0f, 5.0f);
@@ -1178,8 +1215,8 @@ private:
 
 				auto& obj = get_object(handle);
 
-				//uint64_t meshmat = (obj.material >> 32) << 32; 
-				uint64_t meshmat = uint64_t(obj.material) ^ uint64_t(obj.mesh);
+				uint64_t meshmat = (obj.material >> 32) << 32 | uint64_t(obj.bucket); 
+				//uint64_t meshmat = uint64_t(obj.material) ^ uint64_t(obj.mesh);
 
 				cmd.sort_key = meshmat | (uint64_t(obj.custom_key) << 32);
 				new_batches.push_back(cmd);
@@ -1221,7 +1258,8 @@ private:
 				pass.indirect_batches = std::move(new_batches);
 			}
 		}
-/*
+		
+		if(pass.cull_data.sort_drawcalls && viewports[pass.viewport - 1].camera)
 		{
 			ZoneScopedN("draw_sort");
 			std::sort(std::begin(pass.indirect_batches), std::end(pass.indirect_batches), 
@@ -1231,20 +1269,27 @@ private:
 				else if(lhs.sort_key == rhs.sort_key)
 				{
 					auto& vp = viewports[pass.viewport - 1];
-					if(!vp.camera)
-						return false;
 
 					float ldist = (get_object(lhs.object).transform.translation - vp.camera->get_pos()).magnitude_sqr();
 					float rdist = (get_object(rhs.object).transform.translation - vp.camera->get_pos()).magnitude_sqr();
-					if(ldist < rdist)
-						return true;
+
+					if(pass.type != MeshPass::Type::ForwardTransparent)
+					{
+						if(ldist < rdist)
+							return true;
+					}
+					else
+					{
+						if(ldist > rdist)
+							return true;
+					}
 
 					return false;
 				}
 				else { return false; }
 			});
 		}
-*/
+
 		{
 			pass.multibatches.clear();
 
@@ -1254,6 +1299,7 @@ private:
 				nb.first = 0;
 				nb.count = 1;
 				nb.pipeline = Handle<MaterialTemplate>{static_cast<uint32_t>(get_object(pass.indirect_batches[0].object).material >> 32)};
+				nb.bucket = get_object(pass.indirect_batches[0].object).bucket;
 
 				pass.indirect_batches[0].batch = 0;
 
@@ -1267,12 +1313,18 @@ private:
 
 					bool same_pipe = (jb_pipe == b_pipe);
 
-					if(!same_pipe)
+					RenderBucket jb_bucket = get_object(joinbatch->object).bucket;
+					RenderBucket b_bucket = get_object(batch->object).bucket;
+
+					bool same_bucket = (jb_bucket == b_bucket);
+
+					if(!same_pipe || !same_bucket)
 					{
 						pass.multibatches.push_back(nb);
 						nb.first = i;
 						nb.count = 1;
 						nb.pipeline = Handle<MaterialTemplate>{b_pipe};
+						nb.bucket = b_bucket;
 					}
 					else
 					{
@@ -1292,6 +1344,7 @@ private:
 	std::vector<ViewportData> viewports;
 	std::vector<MeshPass> passes;
 	std::vector<RenderObject> renderables;
+	std::unordered_map<Handle<MaterialTemplate>, MaterialBucketFilter> mtl_bucket_filters;
 	std::vector<std::pair<Handle<RenderObject>, bool>> dirty_objects;
 
 	constexpr static uint32_t initial_object_capacity = 65536;
