@@ -74,16 +74,9 @@ struct MeshStorageBuffers
 struct Texture;
 struct Material;
 
-struct MaterialMetadata
-{
-	std::string name;
-	bool dirty{false};
-};
-
 struct MaterialTemplate
 {
         std::string name;
-        std::array<bool, 3> passes;
 
         enum class SizeClass
         {
@@ -225,7 +218,8 @@ struct MTData
 	uint32_t capacity;
 
 	std::mutex cpu_rlock;
-	std::vector<MaterialMetadata> metadata;
+	std::vector<std::string> metadata;
+	std::vector<uint64_t> dirty;
 
 	vulkan::BufferHandle cpu_material_data;
 	vulkan::BufferHandle gpu_material_data;

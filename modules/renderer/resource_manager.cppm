@@ -52,7 +52,7 @@ public:
 
 		return *(reinterpret_cast<Mtl*>(data.cpu_material_data->map<std::byte>() + data.stride * mat_offset));
 	}
-
+	
 	Handle<Mesh> load_mesh(const vfs::path& path);
 	Handle<SkinnedMesh> load_skinned_mesh(const vfs::path& path);
 	Handle<Mesh> skinned_mesh_instantiate(Handle<SkinnedMesh> skm);
@@ -79,7 +79,10 @@ public:
 			});
 
 			Mtl* nullmat = new (data.cpu_material_data->mapped) Mtl();
-			data.metadata.push_back({"null", false});
+			data.metadata.resize(data.capacity);
+			data.dirty.resize(data.capacity / 64 + 1);
+			data.metadata[0] = "null";
+			data.dirty[0] |= 1;
 
 			data.gpu_material_data = device.create_buffer
 			({
@@ -106,9 +109,10 @@ public:
 
 		std::scoped_lock<std::mutex> rlock{data.cpu_rlock};
 		*(data.cpu_material_data->map<Mtl>() + data.size) = mtl;
+		data.metadata[data.size] = std::move(name);
+		data.dirty[data.size / 64] |= (1ull << (data.size % 64));
 		data.size++;
 
-		data.metadata.push_back({std::move(name), true});
 		return material_from_handles(Handle<MaterialTemplate>(tmp_hash), data.size - 1);
 	}
 
@@ -119,7 +123,8 @@ public:
 	vulkan::Buffer* get_material_buffer(Handle<MaterialTemplate> handle);
 
 	std::string& get_texture_metadata(Handle<Texture> h);
-	MaterialMetadata& get_material_metadata(Handle64<Material> h);
+	std::string& get_material_metadata(Handle64<Material> h);
+	void set_material_dirty(Handle64<Material> h, bool dirty);
 
 	void stream_resources();
 private:

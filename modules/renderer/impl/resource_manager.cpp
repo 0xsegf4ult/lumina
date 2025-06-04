@@ -634,12 +634,25 @@ std::string& ResourceManager::get_texture_metadata(Handle<Texture> h)
 	return texture_storage.texture_metadata[h];
 }
 
-MaterialMetadata& ResourceManager::get_material_metadata(Handle64<Material> h)
+std::string& ResourceManager::get_material_metadata(Handle64<Material> h)
 {
 	auto tmp_hash = template_from_material(h);
 	assert(material_storage.contains(tmp_hash));
 	auto mat_offset = offset_from_material(h);
 	return material_storage[tmp_hash].metadata[mat_offset];
+}
+
+void ResourceManager::set_material_dirty(Handle64<Material> h, bool dirty)
+{
+	if(!dirty)
+		return;
+
+	auto tmp_hash = template_from_material(h);
+	assert(material_storage.contains(tmp_hash));
+	auto mat_offset = offset_from_material(h);
+
+	std::scoped_lock<std::mutex> rlock{material_storage[tmp_hash].cpu_rlock};
+	material_storage[tmp_hash].dirty[mat_offset / 64] |= (1ull << (mat_offset % 64));
 }
 
 std::pair<uint32_t, uint32_t> ResourceManager::process_mesh_queue()
@@ -1239,17 +1252,42 @@ void ResourceManager::copy_material_data()
 	{
 		if(data.tmp.size_class == MaterialTemplate::SizeClass::Implicit)
 			continue;
+		
+		std::scoped_lock<std::mutex> rlock{data.cpu_rlock};
+		
+		uint64_t dirty_count = 0;
+		for(auto dpage : data.dirty)
+			dirty_count += __builtin_popcountll(dpage);
 
-		if(data.size == data.gpu_size)
+		if(dirty_count == 0)
 			continue;
 
 		vk::BufferCopy region{};
-		region.size = data.stride * (data.size - data.gpu_size);
-		region.srcOffset = data.stride * data.gpu_size;
-		region.dstOffset = data.stride * data.gpu_size;
-		cmd.vk_object().copyBuffer(data.cpu_material_data->handle, data.gpu_material_data->handle, 1, &region);
+		if(dirty_count >= (data.size / 3) * 2)
+		{
+			region.size = data.stride * data.size;
+			cmd.vk_object().copyBuffer(data.cpu_material_data->handle, data.gpu_material_data->handle, 1, &region);
 
-		data.gpu_size = data.size;
+			for(auto& dpage : data.dirty)
+				dpage = 0;
+		}
+		else
+		{
+			for(uint32_t i = 0; i < data.dirty.size(); i++)
+			{
+				auto& dpage = data.dirty[i];
+				while(dpage != 0)
+				{
+					//FIXME: inefficient but works for now since we only invalidate materials from the editor and no data is being streamed in
+					auto tz = __builtin_ctzll(dpage);
+					region.size = data.stride;
+					region.srcOffset = ((i * 64) + tz) * data.stride; 
+					region.dstOffset = ((i * 64) + tz) * data.stride; 
+					cmd.vk_object().copyBuffer(data.cpu_material_data->handle, data.gpu_material_data->handle, 1, &region);
+					dpage &= (dpage - 1);
+				}
+			}	
+		}
 	}
 
 	cmd.memory_barrier
