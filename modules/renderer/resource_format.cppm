@@ -121,8 +121,8 @@ struct SphereBounds
 struct MeshFormat
 {
 	constexpr static uint32_t fmt_magic = 0x4c444d4c;
-	constexpr static uint32_t fmt_major_version = 0u;
-	constexpr static uint32_t fmt_minor_version = 2u;
+	constexpr static uint32_t fmt_major_version = 1u;
+	constexpr static uint32_t fmt_minor_version = 1u;
 	constexpr static uint32_t max_lod_count = 5u;
 
 	enum class VertexFormat : uint32_t
@@ -142,16 +142,25 @@ struct MeshFormat
 		uint32_t index_offset;
 		uint32_t lod_offset;
 		uint32_t num_lods;
-		SphereBounds sphere;
-		AABB aabb;
+		uint32_t cluster_offset;
+		vec4 sphere;
 	};
 
 	struct MeshLOD
+	{
+		uint32_t cluster_offset{0u};
+		uint32_t cluster_count{0u};
+	};
+
+	struct Cluster
 	{
 		int32_t vertex_offset{0};
 		uint32_t vertex_count{0u};
 		uint32_t index_offset{0u};
 		uint32_t index_count{0u};
+
+		vec4 sphere;
+		vec4 cone;
 	};
 };
 
@@ -248,38 +257,6 @@ float encode_tangent(const vec3& normal, const vec3& tangent, bool flip)
 	}
 
 	return res;
-}
-
-template <typename Vtx>
-constexpr std::pair<SphereBounds, AABB> calc_mesh_bounds(std::span<Vtx> vertices)
-{
-	SphereBounds sphere;
-	AABB aabb;
-
-	vec3 min{std::numeric_limits<float>::max()};
-	vec3 max{std::numeric_limits<float>::lowest()};
-
-	for(const auto& vert : vertices)
-	{
-		const vec3& v = vert.pos;
-		min = vec3::min(min, v);
-		max = vec3::max(max, v);
-	}
-	aabb.mins = min;
-	aabb.maxs = max;
-
-	sphere.extents = (max - min) / 2.0f;
-	sphere.center = sphere.extents + min;
-
-	float r2 = 0.0f;
-	for(const auto& vert : vertices)
-	{
-		const vec3& v = vert.pos;
-		vec3 offset = v - sphere.center;
-		r2 = std::max(r2, offset.magnitude_sqr());
-	}
-	sphere.radius = std::sqrt(r2);
-	return std::make_pair(sphere, aabb);
 }
 
 struct SkeletonFileFormat

@@ -26,6 +26,7 @@ struct IndirectBatch
 {
 	Handle<RenderObject> object;
 	uint32_t batch;
+	uint32_t cluster;
 	uint64_t sort_key;
 };
 
@@ -69,6 +70,7 @@ export struct CullingData
 {
 	bool frustum_cull{true};
 	bool occlusion_cull{true};
+	bool cone_cull{true};
 	bool is_ortho{false};
 	int forced_lod{0};
 	float lod_base{10.0f};
@@ -103,14 +105,14 @@ struct MeshPass
 	std::vector<Multibatch> multibatches{};
 
 	size_t multibatch_capacity = 32;
-	size_t command_capacity = 4096;
+	size_t command_capacity = 65536;
 
 	std::array<uint32_t, 16> intermediate_sizes;
 
+	vulkan::BufferHandle indirect;
 	struct GPUBuffers
 	{
 		vulkan::BufferHandle multibatch;
-		vulkan::BufferHandle indirect;
 		vulkan::BufferHandle command;
 		vulkan::BufferHandle visibility_main;
 		std::vector<vulkan::BufferHandle> visibility;
@@ -119,6 +121,8 @@ struct MeshPass
 	};
 
 	std::array<GPUBuffers, 2> gpu_buffers;
+
+	bool dirty = true;
 };
 
 struct GPUIndirectObject
@@ -127,6 +131,7 @@ struct GPUIndirectObject
 	uint32_t lod_count;
 	uint32_t batch;
 	uint32_t object;
+	uint32_t cluster;
 };
 
 struct GPUMultibatch
@@ -142,7 +147,7 @@ struct GPUObjectData
 	mat4 transform;
 	vec4 sphere;
 	uint32_t material_offset;
-	uint32_t unused0;
+	float cull_scale;
 	uint32_t unused1;
 	uint32_t unused2;
 };
@@ -153,13 +158,14 @@ struct GPUCullingData
 	mat4 viewmat;
 	int frustum_cull{true};
 	int occlusion_cull{true};
+	int cone_cull{true};
 	float znear, zfar;
 	float p00, p11;
 	float pyr_w, pyr_h;
-	vec4 cam_pos;
 	float lod_base{10.0f};
 	float lod_step{1.5f};
 	int forced_lod{-1};
+	vec4 cam_pos;
 	int is_ortho{0};
 	uint32_t global_draw_count;
 };
@@ -266,6 +272,14 @@ public:
 		auto& pass = passes.back();
 
 		auto uid = std::to_string(passes.size());
+			
+		pass.indirect = device->create_buffer
+		({
+			.domain = vulkan::BufferDomain::Device,
+			.usage = vulkan::BufferUsage::StorageBuffer,
+			.size = sizeof(GPUIndirectObject) * pass.command_capacity,
+			.debug_name = "gpu_indirect::" + uid
+		});
 
 		for(uint32_t i = 0; i < 2; i++)
 		{
@@ -277,13 +291,6 @@ public:
 				.debug_name = "gpu_multibatches::" + uid
 			});
 
-			pass.gpu_buffers[i].indirect = device->create_buffer
-			({
-				.domain = vulkan::BufferDomain::Device,
-				.usage = vulkan::BufferUsage::StorageBuffer,
-				.size = sizeof(GPUIndirectObject) * pass.command_capacity,
-				.debug_name = "gpu_indirect::" + uid
-			});
 
 			pass.gpu_buffers[i].command = device->create_buffer
 			({
@@ -487,8 +494,8 @@ public:
 
 					auto tm = object.transform.as_matrix();
 
-					vec4 center = vec4{mesh.bounds.sphere.center, 1.0f} * tm;
-					float radius = std::abs(std::max(std::max(t.scale.x, t.scale.y), t.scale.z)) * mesh.bounds.sphere.radius;
+					vec4 center = vec4{mesh.sphere.demote<3>(), 1.0f} * tm;
+					float radius = std::abs(std::max(std::max(t.scale.x, t.scale.y), t.scale.z)) * mesh.sphere.w;
 
 					GPUObjectData data
 					{
@@ -546,7 +553,6 @@ public:
 
 			uint32_t multibuf_size = p.multibatches.size() * sizeof(GPUMultibatch);
 			uint32_t indbuf_size = p.indirect_batches.size() * sizeof(GPUIndirectObject);
-			uint32_t cmdbuf_size = p.indirect_batches.size() * sizeof(vk::DrawIndexedIndirectCommand);
 
 			if(!p.multibatches.empty())
 			{
@@ -565,6 +571,10 @@ public:
 				cb.vk_object().copyBuffer(streambuf->handle, p.gpu_buffers[fidx].multibatch->handle, 1, &region);
 
 				streambuf_head += sizeof(GPUMultibatch) * p.multibatches.size();
+				
+				if(p.dirty)
+				{
+				
 				for(auto i = 0ull; i < p.indirect_batches.size(); i++)
 				{
 					const IndirectBatch& batch = p.indirect_batches[i];
@@ -575,37 +585,20 @@ public:
 						.lod0_offset = mesh.lod0_offset,
 						.lod_count = mesh.lod_count,
 						.batch = batch.batch,
-						.object = batch.object - 1
+						.object = batch.object - 1,
+						.cluster = batch.cluster
 					};
 				}
 
 				region.srcOffset = streambuf_head;
 				region.size = sizeof(GPUIndirectObject) * p.indirect_batches.size();
-				cb.vk_object().copyBuffer(streambuf->handle, p.gpu_buffers[fidx].indirect->handle, 1, &region);
+				cb.vk_object().copyBuffer(streambuf->handle, p.indirect->handle, 1, &region);
 
 				streambuf_head += sizeof(GPUIndirectObject) * p.indirect_batches.size();
+				p.dirty = false;
 
-				for(auto i = 0ull; i < p.indirect_batches.size(); i++)
-				{
-					const IndirectBatch& batch = p.indirect_batches[i];
-					*(streambuf->map<vk::DrawIndexedIndirectCommand>(streambuf_head) + i) = vk::DrawIndexedIndirectCommand
-					{
-						.indexCount = 0u,
-						.instanceCount = 0u,
-						.firstIndex = 0u,
-						.vertexOffset = 0,
-						.firstInstance = batch.object - 1
-					};
 				}
-
-				region.srcOffset = streambuf_head;
-				region.size = sizeof(vk::DrawIndexedIndirectCommand) * p.indirect_batches.size();
-				cb.vk_object().copyBuffer(streambuf->handle, p.gpu_buffers[fidx].command->handle, 1, &region);
-
-				streambuf_head += sizeof(vk::DrawIndexedIndirectCommand) * p.indirect_batches.size();
 			}
-
-
 
 			}
 		}
@@ -712,6 +705,7 @@ public:
 			auto* gcd = pass.gpu_buffers[device->current_frame_index()].culldata->map<GPUCullingData>();
 			gcd->frustum_cull = cd.frustum_cull;
 			gcd->occlusion_cull = cd.occlusion_cull;
+			gcd->cone_cull = cd.cone_cull;
 			gcd->forced_lod = cd.forced_lod;
 			gcd->lod_base = cd.lod_base;
 			gcd->lod_step = cd.lod_step;
@@ -811,13 +805,14 @@ public:
 			({
 				.storage_buffers =
 				{
-					{0, gbuf.indirect.get()},
+					{0, pass.indirect.get()},
 					{1, gbuf.command.get()},
 					{2, gbuf.multibatch.get()},
 					{3, gpu_object_buffer.get()},
 					{4, resource_manager->get_mesh_buffers().lod},
-					{5, gbuf.culldata.get()},
-					{6, gbuf.visibility_main.get()}
+					{5, resource_manager->get_mesh_buffers().cluster},
+					{6, gbuf.culldata.get()},
+					{7, gbuf.visibility_main.get()}
 				}
 			});
 
@@ -828,7 +823,7 @@ public:
 					.sampled_images =
 					{
 						{
-						7,
+						8,
 						vp.depth_pyramid->get_default_view(),
 						pass.cull_data.is_ortho ? dp_sampler_max : dp_sampler,
 						vk::ImageLayout::eGeneral
@@ -869,7 +864,10 @@ public:
 			.dst_access = vk::AccessFlagBits2::eShaderRead
 			}
 		});
-		
+	
+		device->end_perf_event(cmd);
+
+		device->start_perf_event("gpu_scene::prefix_scan", cmd);	
 	
 		for(auto& pass : passes)
 		{
@@ -964,6 +962,9 @@ public:
 				});
 			}
 		}
+		
+		device->end_perf_event(cmd);
+		device->start_perf_event("gpu_scene::compact_drawcalls", cmd);
 
 		cmd.bind_pipeline({"compact_drawcalls.comp"});
 		
@@ -987,7 +988,7 @@ public:
 					{2, gbuf.visibility[0].get()},
 					{3, gbuf.visibility_main.get()},
 					{4, gbuf.multibatch.get()},
-					{5, gbuf.indirect.get()}
+					{5, pass.indirect.get()}
 				}
 			});
 
@@ -1187,6 +1188,7 @@ public:
                         ImGui::Text("%s: unbatched %zu, cmd %zu, multibatch %zu", to_cstring(pass.type), pass.unbatched_objects.size(), pass.indirect_batches.size(), pass.multibatches.size());
                         ImGui::Checkbox("frustum culling", &pass.cull_data.frustum_cull);
                         ImGui::Checkbox("occlusion culling", &pass.cull_data.occlusion_cull);
+                        ImGui::Checkbox("cone culling", &pass.cull_data.cone_cull);
 			ImGui::Checkbox("drawcall compaction", &pass.cull_data.compact_drawcalls);
 			ImGui::Checkbox("sort drawcalls", &pass.cull_data.sort_drawcalls);
                         ImGui::SliderInt("forced lod", &pass.cull_data.forced_lod, -1, 4);
@@ -1210,16 +1212,19 @@ private:
 			new_batches.reserve(pass.unbatched_objects.size());
 			for(auto handle : pass.unbatched_objects)
 			{
-				IndirectBatch cmd;
-				cmd.object = handle;
-
 				auto& obj = get_object(handle);
+				auto& mesh = resource_manager->get_mesh(obj.mesh);
 
-				uint64_t meshmat = (obj.material >> 32) << 32 | uint64_t(obj.bucket); 
-				//uint64_t meshmat = uint64_t(obj.material) ^ uint64_t(obj.mesh);
+				for(uint32_t i = 0; i < mesh.lods[0].cluster_count; i++)
+				{
+					IndirectBatch cmd;
+					cmd.object = handle;
+					cmd.cluster = i;
 
-				cmd.sort_key = meshmat | (uint64_t(obj.custom_key) << 32);
-				new_batches.push_back(cmd);
+					uint64_t key = (obj.material >> 32) << 32 | uint64_t(obj.bucket); 
+					cmd.sort_key = key | (uint64_t(obj.custom_key) << 32);
+					new_batches.push_back(cmd);
+				}
 			}
 			pass.unbatched_objects.clear();
 		}
@@ -1229,7 +1234,7 @@ private:
 			[](const IndirectBatch& lhs, const IndirectBatch& rhs)
 			{
 				if(lhs.sort_key < rhs.sort_key) { return true; }
-				else if(lhs.sort_key == rhs.sort_key) { return lhs.object < rhs.object; }
+				else if(lhs.sort_key == rhs.sort_key) { return lhs.object < rhs.object; } 
 				else{ return false; }
 			});
 		}
@@ -1249,19 +1254,22 @@ private:
 				[](const IndirectBatch& lhs, const IndirectBatch& rhs)
 				{
 					if(lhs.sort_key < rhs.sort_key) { return true; }
-					else if(lhs.sort_key == rhs.sort_key) { return lhs.object < rhs.object; }
+					else if(lhs.sort_key == rhs.sort_key) { return lhs.object < rhs.object; } 
 					else{ return false; }
 				});
+				pass.dirty = true;
 			}
 			else if(new_batches.size() > 0)
 			{
 				pass.indirect_batches = std::move(new_batches);
+				pass.dirty = true;
 			}
 		}
 		
 		if(pass.cull_data.sort_drawcalls && viewports[pass.viewport - 1].camera)
 		{
 			ZoneScopedN("draw_sort");
+			pass.dirty = true;
 			std::sort(std::begin(pass.indirect_batches), std::end(pass.indirect_batches), 
 			[this, &pass](const IndirectBatch& lhs, const IndirectBatch& rhs)
 			{
@@ -1283,8 +1291,8 @@ private:
 						if(ldist > rdist)
 							return true;
 					}
-
-					return false;
+					
+					return lhs.object < rhs.object;
 				}
 				else { return false; }
 			});

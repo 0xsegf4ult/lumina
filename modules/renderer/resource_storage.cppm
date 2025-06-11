@@ -11,22 +11,17 @@ using std::uint16_t, std::uint32_t, std::int32_t, std::size_t;
 export namespace lumina::render 
 {
 
-struct MeshBounds
-{
-        SphereBounds sphere{};
-        AABB aabb{};
-};
-
 struct Mesh
 {
         using Vertex = StaticVertexFormat;
-        using Bounds = MeshBounds;
 
         std::string name{};
-        Bounds bounds{};
+        vec4 sphere{};
 
         using LODLevel = MeshFormat::MeshLOD;
         std::array<LODLevel, MeshFormat::max_lod_count> lods{};
+	using Cluster = MeshFormat::Cluster;
+	std::vector<Cluster> clusters;
 
         uint32_t lod_count{0};
         uint32_t lod0_offset{0};
@@ -37,16 +32,18 @@ struct Mesh
 struct SkinnedMesh
 {
         using Vertex = SkinnedVertexFormat;
-        using Bounds = MeshBounds;
 
         std::string name{};
-        Bounds bounds{};
+        vec4 sphere{};
+        
+	using LODLevel = MeshFormat::MeshLOD;
+        std::array<LODLevel, MeshFormat::max_lod_count> lods{};
 
-        int32_t ssbo_vertex_offset{0};
-        uint32_t vertex_count{0u};
-
-        uint32_t ib_index_offset{0u};
-        uint32_t index_count{0u};
+	using Cluster = MeshFormat::Cluster;
+	std::vector<Cluster> clusters;
+        
+	uint32_t lod_count{0};
+        uint32_t lod0_offset{0};
 
         bool in_gpumem = false;
 };
@@ -69,6 +66,7 @@ struct MeshStorageBuffers
 	vulkan::Buffer* index;
 	vulkan::Buffer* skinned_vertex;
 	vulkan::Buffer* lod;
+	vulkan::Buffer* cluster;
 };
 
 struct Texture;
@@ -152,22 +150,26 @@ struct MeshStorage
 	vulkan::BufferHandle gpu_index_buffer;
 	vulkan::BufferHandle gpu_skinned_vertices;
 	vulkan::BufferHandle gpu_meshlod_buffer;
-	
+	vulkan::BufferHandle gpu_cluster_buffer;
+
 	int32_t gpu_vbuf_head = 0;
 	int32_t gpu_sk_vbuf_head = 0;
 	uint32_t gpu_ibuf_head = 0;
 	uint32_t gpu_lodbuf_head = 0;
+	uint32_t gpu_clusterbuf_head = 0;
 
-	constexpr static uint32_t gpu_vertcap = 4194304u;
+	constexpr static uint32_t gpu_vertcap = 4194304u * 2;
 	constexpr static uint32_t gpu_sk_vertcap = 2097152u;
 	constexpr static uint32_t gpu_idxcap = 33554432u;
 	constexpr static uint32_t gpu_lodcap = 65536u;
+	constexpr static uint32_t gpu_clustercap = 65536u * 2;
 
 	std::vector<vk::BufferCopy> transfer_cmd_vpos;
 	std::vector<vk::BufferCopy> transfer_cmd_vattr;
 	std::vector<vk::BufferCopy> transfer_cmd_idx;
 	std::vector<vk::BufferCopy> transfer_cmd_lod;
 	std::vector<vk::BufferCopy> transfer_cmd_skv;
+	std::vector<vk::BufferCopy> transfer_cmd_cluster;
 };
 
 struct TextureLoadData

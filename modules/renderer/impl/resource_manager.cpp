@@ -62,8 +62,16 @@ void init_mesh_storage(vulkan::Device& device, MeshStorage& data)
 		.debug_name = "mesh_lod_levels"
 	});
 
-	data.meshes.push_back(Mesh{"mesh::null", {}, 0, 0, false, false});
-	data.sk_meshes.push_back(SkinnedMesh{"skinned_mesh::null", {}, 0, 0, 0, 0, false});
+	data.gpu_cluster_buffer = device.create_buffer
+	({
+		.domain = vulkan::BufferDomain::Device,
+		.usage = vulkan::BufferUsage::StorageBuffer,
+		.size = sizeof(Mesh::Cluster) * data.gpu_clustercap,
+		.debug_name = "mesh_clusters"
+	});
+
+	data.meshes.push_back(Mesh{"mesh::null", {}, {}, {}, 0, 0, false, false});
+	data.sk_meshes.push_back(SkinnedMesh{"skinned_mesh::null", {}, {}, {}, 0, 0, false});
 }
 
 void descriptor_update(vulkan::Device& device, TextureStorage& data, std::span<Handle<Texture>> hnd)
@@ -239,6 +247,7 @@ Handle<Mesh> ResourceManager::load_mesh(const vfs::path& path)
 	int32_t vertex_offset = data.gpu_vbuf_head;
 	uint32_t index_offset = data.gpu_ibuf_head;
 	uint32_t lod0_offset = data.gpu_lodbuf_head;
+	uint32_t cluster_offset = data.gpu_clusterbuf_head;
 
 	const auto* mesh_data = vfs::map<std::byte>(*mesh_file, vfs::access_readonly);
 	const auto* header = reinterpret_cast<const MeshFormat::Header*>(mesh_data);
@@ -253,27 +262,45 @@ Handle<Mesh> ResourceManager::load_mesh(const vfs::path& path)
 	Mesh l_mesh
 	{
 		.name = path.filename().string(),
-		.bounds = {header->sphere, header->aabb},
+		.sphere = header->sphere,
 		.lod_count = header->num_lods,
 		.lod0_offset = lod0_offset
 	};
 
 	uint32_t vcount = 0;
 	uint32_t icount = 0;
+	uint32_t ccount = 0;
 	const auto* lod_table = reinterpret_cast<const MeshFormat::MeshLOD*>(mesh_data + header->lod_offset);
+	const auto* cluster_table = reinterpret_cast<const MeshFormat::Cluster*>(mesh_data + header->cluster_offset);
 	for(uint32_t i = 0; i < l_mesh.lod_count; i++)
 	{
 		l_mesh.lods[i] = 
 		{
-			vertex_offset + lod_table[i].vertex_offset,
-			lod_table[i].vertex_count,
-			index_offset + lod_table[i].index_offset,
-			lod_table[i].index_count
+			cluster_offset + lod_table[i].cluster_offset,
+			lod_table[i].cluster_count
 		};
-		if(i == 0 || (i > 0 && lod_table[i].vertex_offset != 0))
-			vcount += lod_table[i].vertex_count;
+		ccount += lod_table[i].cluster_count; 
+	}
 
-		icount += lod_table[i].index_count;
+	l_mesh.clusters.resize(ccount);
+	for(uint32_t l = 0; l < l_mesh.lod_count; l++)
+	{
+		for(uint32_t i = 0; i < lod_table[l].cluster_count; i++)
+		{
+			uint32_t coff = i + lod_table[l].cluster_offset;
+			l_mesh.clusters[coff] =
+			{
+				vertex_offset + cluster_table[coff].vertex_offset,
+				cluster_table[coff].vertex_count,
+				index_offset + cluster_table[coff].index_offset,
+				cluster_table[coff].index_count,
+				cluster_table[coff].sphere,
+				cluster_table[coff].cone
+			};
+
+			vcount += cluster_table[coff].vertex_count;
+			icount += cluster_table[coff].index_count;
+		}
 	}
 
 	if(data.gpu_vbuf_head + vcount > data.gpu_vertcap)
@@ -299,6 +326,15 @@ Handle<Mesh> ResourceManager::load_mesh(const vfs::path& path)
 		return Handle<Mesh>{0};
 	}
 	data.gpu_lodbuf_head += l_mesh.lod_count;
+
+	if(data.gpu_clusterbuf_head + ccount > data.gpu_clustercap)
+	{
+		log::error("resource_manager: cluster buffer overflowed");
+		vfs::close(*mesh_file);
+		return Handle<Mesh>{0};
+	}
+	data.gpu_clusterbuf_head += ccount;
+
 	data.meshes[data.next_mesh] = l_mesh;
 
 	Handle<Mesh> mh{data.next_mesh++};
@@ -329,7 +365,7 @@ Handle<SkinnedMesh> ResourceManager::load_skinned_mesh(const vfs::path& path)
 	std::unique_lock<std::shared_mutex> m_lock{data.sk_mesh_meta_lock};
 	if(data.sk_meshes.size() <= data.next_sk_mesh)
 		data.sk_meshes.insert(data.sk_meshes.end(), (data.next_sk_mesh + 1) - data.sk_meshes.size(), SkinnedMesh{});
-
+/*
 	int32_t vertex_offset = data.gpu_sk_vbuf_head;
 	uint32_t index_offset = data.gpu_ibuf_head;
 
@@ -374,7 +410,7 @@ Handle<SkinnedMesh> ResourceManager::load_skinned_mesh(const vfs::path& path)
 	}
 	data.gpu_ibuf_head += icount;
 	
-	data.sk_meshes[data.next_sk_mesh] = l_mesh;
+	data.sk_meshes[data.next_sk_mesh] = l_mesh;*/
 	Handle<SkinnedMesh> mh{data.next_sk_mesh++};
 	loaded_skinned_meshes[phash] = mh;
 	m_lock.unlock();
@@ -395,15 +431,15 @@ Handle<Mesh> ResourceManager::skinned_mesh_instantiate(Handle<SkinnedMesh> skm)
 
 	SkinnedMesh& sk_mesh = data.sk_meshes[skm];
 	
-	if(data.gpu_vbuf_head + sk_mesh.vertex_count > data.gpu_vertcap)
+/*	if(data.gpu_vbuf_head + sk_mesh.vertex_count > data.gpu_vertcap)
 	{
 		log::error("resource_manager: vertex buffer overflowed");
 		return Handle<Mesh>{0};
 	}
-
+*/
 	if(data.meshes.size() <= data.next_mesh)
 		data.meshes.insert(data.meshes.end(), (data.next_mesh + 1) - data.meshes.size(), Mesh{});
-
+/*
 	data.meshes[data.next_mesh] = Mesh
 	{
 		sk_mesh.name,
@@ -425,7 +461,7 @@ Handle<Mesh> ResourceManager::skinned_mesh_instantiate(Handle<SkinnedMesh> skm)
 	
 
 	data.gpu_vbuf_head += sk_mesh.vertex_count;
-
+*/
 	auto mh = Handle<Mesh>{data.next_mesh++};
 	data.sk_instance_queue.push_back({mh, data.gpu_lodbuf_head++});
 	return mh;
@@ -590,7 +626,7 @@ void ResourceManager::bind_mesh_vpos(vulkan::CommandBuffer& cmd)
 {
 	ZoneScoped;
 	cmd.bind_vertex_buffers({mesh_storage.gpu_vertex_pos_buffer.get()});
-	cmd.bind_index_buffer(mesh_storage.gpu_index_buffer.get());
+	cmd.bind_index_buffer(mesh_storage.gpu_index_buffer.get(), vk::IndexType::eUint8);
 }
 
 void ResourceManager::bind_mesh_full(vulkan::CommandBuffer& cmd)
@@ -602,7 +638,7 @@ void ResourceManager::bind_mesh_full(vulkan::CommandBuffer& cmd)
 		mesh_storage.gpu_vertex_attr_buffer.get()
 	});
 
-	cmd.bind_index_buffer(mesh_storage.gpu_index_buffer.get());
+	cmd.bind_index_buffer(mesh_storage.gpu_index_buffer.get(), vk::IndexType::eUint8);
 }
 
 MeshStorageBuffers ResourceManager::get_mesh_buffers()
@@ -613,7 +649,8 @@ MeshStorageBuffers ResourceManager::get_mesh_buffers()
 		mesh_storage.gpu_vertex_attr_buffer.get(),
 		mesh_storage.gpu_index_buffer.get(),
 		mesh_storage.gpu_skinned_vertices.get(),
-		mesh_storage.gpu_meshlod_buffer.get()
+		mesh_storage.gpu_meshlod_buffer.get(),
+		mesh_storage.gpu_cluster_buffer.get()
 	};
 }
 
@@ -677,6 +714,7 @@ std::pair<uint32_t, uint32_t> ResourceManager::process_mesh_queue()
 	data.transfer_cmd_idx.reserve(aq_size);
 	data.transfer_cmd_lod.reserve(aq_size + iq_size);
 	data.transfer_cmd_skv.reserve(aq_size);
+	data.transfer_cmd_cluster.reserve(aq_size + iq_size);
 
 	std::unique_lock<std::shared_mutex> m_lock{data.mesh_meta_lock};
 	std::unique_lock<std::shared_mutex> sk_m_lock{data.sk_mesh_meta_lock};
@@ -687,20 +725,22 @@ std::pair<uint32_t, uint32_t> ResourceManager::process_mesh_queue()
 	{
 		uint32_t vcount = 0;
 		uint32_t icount = 0;
+		uint32_t ccount = 0;
 
 		uint32_t vpos_size = 0;
 		uint32_t vattr_size = 0;
 		uint32_t idx_size = 0;
 		uint32_t lod_size = 0;
+		uint32_t cluster_size = 0;
 
 		if(entry.skinned)
 		{
 			SkinnedMesh& m = data.sk_meshes[entry.handle];
-			vcount = m.vertex_count;
+			/*vcount = m.vertex_count;
 			icount = m.index_count;
-
+*/
 			vpos_size = vcount * sizeof(SkinnedMesh::Vertex);
-			idx_size = icount * sizeof(uint32_t);
+			idx_size = icount * sizeof(uint8_t);
 		}
 		else
 		{
@@ -708,20 +748,23 @@ std::pair<uint32_t, uint32_t> ResourceManager::process_mesh_queue()
 
 			for(uint32_t i = 0; i < m.lod_count; i++)
 			{
-				if(i == 0 || (i > 0 && (m.lods[i].vertex_offset - m.lods[0].vertex_offset) != 0))
+				for(uint32_t c = 0; c < m.lods[i].cluster_count; c++)
 				{
-					vcount += m.lods[i].vertex_count;
+					uint32_t coff = c + (m.lods[i].cluster_offset - m.lods[0].cluster_offset);
+					vcount += m.clusters[coff].vertex_count;
+					icount += m.clusters[coff].index_count;
 				}
-				icount += m.lods[i].index_count;
+				ccount += m.lods[i].cluster_count;
 			}
 		
 			vpos_size = vcount * sizeof(Mesh::Vertex::pos_type);
 			vattr_size = vcount * sizeof(Mesh::Vertex::Attributes);
-			idx_size = icount * sizeof(uint32_t);
+			idx_size = icount * sizeof(uint8_t);
 			lod_size = m.lod_count * sizeof(Mesh::LODLevel);
+			cluster_size = ccount * sizeof(Mesh::Cluster);
 		}
 			
-		uint32_t d_size = vpos_size + vattr_size + idx_size + lod_size;
+		uint32_t d_size = vpos_size + vattr_size + idx_size + lod_size + cluster_size;
 		if(stream_buffer_head + d_size >= stream_buffer_size)
 			break;
 
@@ -735,7 +778,7 @@ std::pair<uint32_t, uint32_t> ResourceManager::process_mesh_queue()
 		if(entry.skinned)
 		{
 			SkinnedMesh& m = data.sk_meshes[entry.handle];
-			uint32_t skv_offset = static_cast<uint32_t>(m.ssbo_vertex_offset) * sizeof(SkinnedMesh::Vertex);
+		/*	uint32_t skv_offset = static_cast<uint32_t>(m.ssbo_vertex_offset) * sizeof(SkinnedMesh::Vertex);
 			idx_offset = static_cast<uint32_t>(m.ib_index_offset) * sizeof(uint32_t);
 
 			data.transfer_cmd_skv.push_back
@@ -744,16 +787,17 @@ std::pair<uint32_t, uint32_t> ResourceManager::process_mesh_queue()
 				.dstOffset = skv_offset,
 				.size = vpos_size
 			});
-			stream_buffer_head += vpos_size;
+			stream_buffer_head += vpos_size;*/
 		}
 		else
 		{
 			Mesh& m = data.meshes[entry.handle];
-			idx_offset = m.lods[0].index_offset * sizeof(uint32_t);
+			idx_offset = m.clusters[0].index_offset * sizeof(uint8_t);
 			
-			uint32_t vpos_offset = static_cast<uint32_t>(m.lods[0].vertex_offset) * sizeof(Mesh::Vertex::pos_type);
-			uint32_t vattr_offset = static_cast<uint32_t>(m.lods[0].vertex_offset) * sizeof(Mesh::Vertex::Attributes);
+			uint32_t vpos_offset = static_cast<uint32_t>(m.clusters[0].vertex_offset) * sizeof(Mesh::Vertex::pos_type);
+			uint32_t vattr_offset = static_cast<uint32_t>(m.clusters[0].vertex_offset) * sizeof(Mesh::Vertex::Attributes);
 			uint32_t lod_offset = m.lod0_offset * sizeof(Mesh::LODLevel);
+			uint32_t cluster_offset = m.lods[0].cluster_offset * sizeof(Mesh::Cluster);
 
 			data.transfer_cmd_vpos.push_back
 			({
@@ -780,6 +824,15 @@ std::pair<uint32_t, uint32_t> ResourceManager::process_mesh_queue()
 				.size = lod_size
 			});
 			stream_buffer_head += lod_size;
+
+			std::memcpy(streambuf + stream_buffer_head, m.clusters.data(), cluster_size);
+			data.transfer_cmd_cluster.push_back
+			({
+				.srcOffset = stream_buffer_head,
+				.dstOffset = cluster_offset,
+				.size = cluster_size
+			});
+			stream_buffer_head += cluster_size;
 		}
 
 		std::memcpy(streambuf + stream_buffer_head, mesh_data + header->index_offset, idx_size);
@@ -995,6 +1048,14 @@ void ResourceManager::copy_mesh_data(uint32_t assets, uint32_t instances)
 		.src_queue = vulkan::Queue::Graphics,
 		.dst_queue = vulkan::Queue::Transfer,
 		.buffer = data.gpu_meshlod_buffer.get(),
+		},
+		{
+		.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
+		.src_access = vk::AccessFlagBits2::eShaderStorageRead,
+		.dst_stage = vk::PipelineStageFlagBits2::eAllCommands,
+		.src_queue = vulkan::Queue::Graphics,
+		.dst_queue = vulkan::Queue::Transfer,
+		.buffer = data.gpu_cluster_buffer.get(),
 		}
 	});
 	auto grtv = device.submit(cmd, vulkan::submit_signal_timeline);
@@ -1042,6 +1103,14 @@ void ResourceManager::copy_mesh_data(uint32_t assets, uint32_t instances)
 		.src_queue = vulkan::Queue::Graphics,
 		.dst_queue = vulkan::Queue::Transfer,
 		.buffer = data.gpu_meshlod_buffer.get(),
+		},
+		{
+		.src_stage = vk::PipelineStageFlagBits2::eTransfer,
+		.dst_stage = vk::PipelineStageFlagBits2::eTransfer,
+		.dst_access = vk::AccessFlagBits2::eTransferWrite,
+		.src_queue = vulkan::Queue::Graphics,
+		.dst_queue = vulkan::Queue::Transfer,
+		.buffer = data.gpu_cluster_buffer.get(),
 		}
 	});
 
@@ -1059,6 +1128,9 @@ void ResourceManager::copy_mesh_data(uint32_t assets, uint32_t instances)
 
 	if(!data.transfer_cmd_lod.empty())
 		cmd.vk_object().copyBuffer(stream_buffer->handle, data.gpu_meshlod_buffer->handle, static_cast<uint32_t>(data.transfer_cmd_lod.size()), data.transfer_cmd_lod.data());
+
+	if(!data.transfer_cmd_cluster.empty())
+		cmd.vk_object().copyBuffer(stream_buffer->handle, data.gpu_cluster_buffer->handle, static_cast<uint32_t>(data.transfer_cmd_cluster.size()), data.transfer_cmd_cluster.data());
 
 	cmd.pipeline_barrier
 	({
@@ -1101,6 +1173,14 @@ void ResourceManager::copy_mesh_data(uint32_t assets, uint32_t instances)
 		.src_queue = vulkan::Queue::Transfer,
 		.dst_queue = vulkan::Queue::Graphics,
 		.buffer = data.gpu_meshlod_buffer.get(),
+		},
+		{
+		.src_stage = vk::PipelineStageFlagBits2::eTransfer,
+		.src_access = vk::AccessFlagBits2::eTransferWrite,
+		.dst_stage = vk::PipelineStageFlagBits2::eAllCommands,
+		.src_queue = vulkan::Queue::Transfer,
+		.dst_queue = vulkan::Queue::Graphics,
+		.buffer = data.gpu_cluster_buffer.get(),
 		}
 	});
 	auto wt = device.submit(cmd, vulkan::submit_signal_timeline);
@@ -1148,6 +1228,14 @@ void ResourceManager::copy_mesh_data(uint32_t assets, uint32_t instances)
 		.src_queue = vulkan::Queue::Transfer,
 		.dst_queue = vulkan::Queue::Graphics,
 		.buffer = data.gpu_meshlod_buffer.get(),
+		},
+		{
+		.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
+		.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
+		.dst_access = vk::AccessFlagBits2::eShaderStorageRead,
+		.src_queue = vulkan::Queue::Transfer,
+		.dst_queue = vulkan::Queue::Graphics,
+		.buffer = data.gpu_cluster_buffer.get(),
 		}
 	});
 	auto gwt = device.submit(cmd, vulkan::submit_signal_timeline);
@@ -1179,6 +1267,7 @@ void ResourceManager::copy_mesh_data(uint32_t assets, uint32_t instances)
 	data.transfer_cmd_idx.clear();
 	data.transfer_cmd_skv.clear();
 	data.transfer_cmd_lod.clear();
+	data.transfer_cmd_cluster.clear();
 }
 
 void ResourceManager::copy_texture_data(uint32_t count)
