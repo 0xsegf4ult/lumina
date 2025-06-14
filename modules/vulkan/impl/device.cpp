@@ -272,10 +272,11 @@ BufferHandle Device::create_buffer(const BufferKey& key)
 
 	// FIXME: nvidia ignores sharingMode for buffers, check if concurrent affects perf on amd
 
+	vk::BufferUsageFlagBits default_usage_flags = vk::BufferUsageFlagBits::eShaderDeviceAddress;
         vk::Buffer buf = handle.createBuffer
         ({
                 .size = key.size,
-                .usage = decode_buffer_usage(key.usage),
+                .usage = decode_buffer_usage(key.usage) | default_usage_flags,
                 .sharingMode = vk::SharingMode::eConcurrent,
 		.queueFamilyIndexCount = 3u,
 		.pQueueFamilyIndices = indices.data()
@@ -285,11 +286,18 @@ BufferHandle Device::create_buffer(const BufferKey& key)
         auto mem_req = handle.getBufferMemoryRequirements(buf);
         auto mem_idx = get_memory_type(mem_req.memoryTypeBits, decode_buffer_domain(key.domain));
 
-        vk::DeviceMemory mem = handle.allocateMemory
-        ({
-                .allocationSize = mem_req.size,
-                .memoryTypeIndex = mem_idx.value()
-        });
+	auto alloc_chain = vk::StructureChain<vk::MemoryAllocateInfo, vk::MemoryAllocateFlagsInfo>
+	{
+		{
+			.allocationSize = mem_req.size,
+			.memoryTypeIndex = mem_idx.value()
+		},
+		{
+			.flags = vk::MemoryAllocateFlagBits::eDeviceAddress
+		}
+	};
+
+        vk::DeviceMemory mem = handle.allocateMemory(alloc_chain.get<vk::MemoryAllocateInfo>());
 
         auto ptr = std::make_unique<Buffer>(this, buf, mem, key.size);
 

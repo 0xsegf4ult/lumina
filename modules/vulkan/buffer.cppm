@@ -95,6 +95,8 @@ struct Buffer
 	{
 		return reinterpret_cast<T*>(reinterpret_cast<std::byte*>(mapped) + offset);
 	}
+	
+	vk::DeviceAddress device_address();
 
 	Device* device;
 	vk::Buffer handle;

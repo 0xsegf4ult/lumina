@@ -19,4 +19,12 @@ namespace lumina::vulkan
 			device->release_resource(Queue::Graphics, {memory, 0});
 		}
 	}
+
+	vk::DeviceAddress Buffer::device_address()
+	{
+		return device->get_handle().getBufferAddress
+		({
+			.buffer = handle
+		});
+	}
 }

@@ -38,7 +38,6 @@ target_sources(lumina_core PUBLIC FILE_SET CXX_MODULES FILES
 	math/util.cppm
 	math/vector.cppm
 	array_proxy.cppm
-	fixed_string.cppm
 	hash.cppm
 	handle.cppm
 	iterable_proxy.cppm

@@ -257,7 +257,8 @@ public:
 				.runtimeDescriptorArray = true,
 				.samplerFilterMinmax = true,
 				.hostQueryReset = true,
-				.timelineSemaphore = true
+				.timelineSemaphore = true,
+				.bufferDeviceAddress = true
 			},
 			{
 				.synchronization2 = true,
