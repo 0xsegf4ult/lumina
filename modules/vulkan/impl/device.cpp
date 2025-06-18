@@ -255,6 +255,11 @@ vk::Sampler Device::get_prefab_sampler(SamplerPrefab prefab) const
 	return sampler_prefabs[static_cast<size_t>(prefab)];
 }	
 
+uint64_t Device::current_frame_number() const
+{
+	return frame_counter_global;
+}
+
 size_t Device::current_frame_index() const
 {
 	return static_cast<size_t>(frame_counter_global % num_ctx);

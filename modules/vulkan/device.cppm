@@ -96,6 +96,7 @@ public:
 	vk::Queue get_queue(Queue queue);
 	uint32_t get_queue_index(Queue queue) const;	
 	vk::Sampler get_prefab_sampler(SamplerPrefab sampler) const;
+	uint64_t current_frame_number() const;
 	size_t current_frame_index() const;	
 
 	std::string_view get_name() const
