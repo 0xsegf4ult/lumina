@@ -475,11 +475,42 @@ void CommandBuffer::draw(uint32_t vertex_count, uint32_t instance_count, uint32_
 	cmd.draw(vertex_count, instance_count, first_vertex, first_instance);
 }
 
+void CommandBuffer::draw_indirect(Buffer* buffer, vk::DeviceSize offset, uint32_t draw_count, uint32_t stride)
+{
+	assert(!is_compute_pso);
+	assert(bound_pipe);
+	assert(buffer);
+	assert(stride);
+
+	cmd.drawIndirect(buffer->handle, offset, draw_count, stride);
+}
+
 void CommandBuffer::draw_indexed(uint32_t index_count, uint32_t instance_count, uint32_t first_index, int32_t vertex_offset, uint32_t first_instance)
 {
 	assert(!is_compute_pso);
 	assert(bound_pipe);
 	cmd.drawIndexed(index_count, instance_count, first_index, vertex_offset, first_instance);
+}
+	
+void CommandBuffer::draw_indexed_indirect(Buffer* buffer, vk::DeviceSize offset, uint32_t draw_count, uint32_t stride)
+{
+	assert(!is_compute_pso);
+	assert(bound_pipe);
+	assert(buffer);
+	assert(stride);
+
+	cmd.drawIndexedIndirect(buffer->handle, offset, draw_count, stride); 
+}
+
+void CommandBuffer::draw_indexed_indirect_count(Buffer* buffer, vk::DeviceSize offset, Buffer* count_buffer, vk::DeviceSize count_offset, uint32_t max_draw_count, uint32_t stride)
+{
+	assert(!is_compute_pso);
+	assert(bound_pipe);
+	assert(buffer);
+	assert(count_buffer);
+	assert(stride);
+
+	cmd.drawIndexedIndirectCount(buffer->handle, offset, count_buffer->handle, count_offset, max_draw_count, stride);
 }
 
 void CommandBuffer::dispatch(uint32_t group_size_x, uint32_t group_size_y, uint32_t group_size_z)
@@ -494,6 +525,15 @@ void CommandBuffer::dispatch(uvec3 group_size)
 	assert(is_compute_pso);
 	assert(bound_pipe);
 	cmd.dispatch(group_size.x, group_size.y, group_size.z);
+}
+
+void CommandBuffer::dispatch_indirect(Buffer* buffer, vk::DeviceSize offset)
+{
+	assert(is_compute_pso);
+	assert(bound_pipe);
+	assert(buffer);
+
+	cmd.dispatchIndirect(buffer->handle, offset);
 }
 
 void CommandBuffer::add_wait_semaphore(WaitSemaphoreInfo&& ws)

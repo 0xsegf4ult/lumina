@@ -439,11 +439,11 @@ public:
 
 		if(pass.cull_data.compact_drawcalls)
 		{
-			cmd.vk_object().drawIndexedIndirectCount
+			cmd.draw_indexed_indirect_count
 			(
-				pass.gpu_buffers[device->current_frame_index()].compact_command->handle,
+				pass.gpu_buffers[device->current_frame_index()].compact_command.get(),
 				batch->first * sizeof(vk::DrawIndexedIndirectCommand),
-				pass.gpu_buffers[device->current_frame_index()].multibatch->handle,
+				pass.gpu_buffers[device->current_frame_index()].multibatch.get(),
 				batchID * sizeof(GPUMultibatch) + __builtin_offsetof(GPUMultibatch, draw_count),
 				batch->count,
 				sizeof(vk::DrawIndexedIndirectCommand)
@@ -451,9 +451,9 @@ public:
 		}
 		else
 		{
-			cmd.vk_object().drawIndexedIndirect
+			cmd.draw_indexed_indirect
 			(
-				pass.gpu_buffers[device->current_frame_index()].command->handle,
+				pass.gpu_buffers[device->current_frame_index()].command.get(),
 				batch->first * sizeof(vk::DrawIndexedIndirectCommand),
 				batch->count,
 				sizeof(vk::DrawIndexedIndirectCommand)

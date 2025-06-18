@@ -163,9 +163,14 @@ struct CommandBuffer
 	void bind_vertex_buffers(array_proxy<Buffer*> buffers);
 	void bind_index_buffer(Buffer* buffer, vk::IndexType type = vk::IndexType::eUint32);
 	void draw(uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance);
+	void draw_indirect(Buffer* buffer, vk::DeviceSize offset, uint32_t draw_count, uint32_t stride);
+
 	void draw_indexed(uint32_t index_count, uint32_t instance_count, uint32_t first_index, int32_t vertex_offset, uint32_t first_instance);
+	void draw_indexed_indirect(Buffer* buffer, vk::DeviceSize offset, uint32_t draw_count, uint32_t stride);
+	void draw_indexed_indirect_count(Buffer* buffer, vk::DeviceSize offset, Buffer* count_buffer, vk::DeviceSize count_offset, uint32_t max_draw_count, uint32_t stride);
 	void dispatch(uint32_t group_size_x, uint32_t group_size_y, uint32_t group_size_z);
 	void dispatch(uvec3 group_size);
+	void dispatch_indirect(Buffer* buffer, vk::DeviceSize offset);
 
 	void add_wait_semaphore(WaitSemaphoreInfo&& ws);
 	std::span<WaitSemaphoreInfo> get_wait_semaphores();
