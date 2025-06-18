@@ -256,6 +256,7 @@ public:
 				.descriptorBindingVariableDescriptorCount = true,
 				.runtimeDescriptorArray = true,
 				.samplerFilterMinmax = true,
+				.scalarBlockLayout = true,
 				.hostQueryReset = true,
 				.timelineSemaphore = true,
 				.bufferDeviceAddress = true
