@@ -1,3 +1,6 @@
+#ifndef VERTEX_FORMAT_HEADER
+#define VERTEX_FORMAT_HEADER
+
 struct VertexPos
 {
 	float pos_x; 
@@ -23,3 +26,4 @@ struct SkinnedVertex
 	vec4 weights;
 };
 
+#endif

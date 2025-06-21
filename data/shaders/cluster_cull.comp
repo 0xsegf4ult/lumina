@@ -1,0 +1,190 @@
+#version 450
+#extension GL_KHR_shader_subgroup_ballot: require
+#extension GL_KHR_shader_subgroup_vote: require
+#extension GL_EXT_scalar_block_layout: require
+
+#include "shaders/gpu_scene.glsl"
+
+layout (local_size_x = 32) in;
+
+layout(scalar, binding = 0) readonly buffer ObjectBuffer
+{
+	ObjectInstance objects[];
+};
+
+layout(scalar, binding = 1) readonly buffer InputBuffer
+{
+	ClusterInstance instances[];
+};
+
+layout(scalar, binding = 2) writeonly buffer CommandBuffer
+{
+	IndirectCommand commands[];
+};
+
+layout(scalar, binding = 3) readonly buffer InArgumentBuffer
+{
+	uvec4 in_arguments;
+};
+
+layout(scalar, binding = 4) buffer OutArgumentBuffer
+{
+	uint out_arguments[];
+};
+
+struct Bucket
+{
+	uint offset;
+	uint count;
+};
+
+layout(scalar, binding = 5) buffer BucketBuffer
+{
+	Bucket buckets[];
+};
+
+layout(scalar, binding = 6) buffer VisibilityBuffer
+{
+	uint visibility[];
+};
+
+layout(scalar, binding = 7) readonly buffer ClusterBuffer
+{
+	MeshCluster clusters[];
+};
+
+layout(scalar, binding = 8) uniform CullingData
+{
+	vec4 frustum_planes[4];
+	mat4 viewmat;
+	uint frustum_cull;
+	uint occlusion_cull;
+	uint cone_cull;
+	uint is_ortho;
+	float znear;
+	float zfar;
+	float p00;
+	float p11;
+	float pyramid_w;
+	float pyramid_h;
+	float lod_base;
+	float lod_step;
+	vec4 cam_pos;
+	int forced_lod;
+} culling_data;
+
+layout (binding = 9) uniform sampler2D depthPyramid;
+
+bool projectSphere(vec3 c, float r, float znear, float p00, float p11, out vec4 aabb)
+{
+        if(-c.z < r + znear)
+                return false;
+
+        vec2 cxz = -c.xz;
+        vec2 vx = vec2(sqrt(dot(cxz, cxz) - r * r), r);
+        vec2 minx = mat2(vx.x, vx.y, -vx.y, vx.x) * cxz;
+        vec2 maxx = mat2(vx.x, -vx.y, vx.y, vx.x) * cxz;
+
+        vec2 cyz = -c.yz;
+        vec2 vy = vec2(sqrt(dot(cyz, cyz) - r * r), r);
+        vec2 miny = mat2(vy.x, vy.y, -vy.y, vy.x) * cyz;
+        vec2 maxy = mat2(vy.x, -vy.y, vy.y, vy.x) * cyz;
+
+        aabb = 0.5 - 0.5 * vec4(minx.x / minx.y * p00, miny.x / miny.y * p11, maxx.x / maxx.y * p00, maxy.x / maxy.y * p11);
+
+        return true;
+}
+
+bool is_visible(vec4 sphere, float radius, vec3 cone, float cone_cutoff)
+{
+        bool visible = true;
+        vec3 center = (culling_data.viewmat * sphere).xyz;
+	vec3 cone_axis = mat3(culling_data.viewmat) * cone;
+
+        if(culling_data.frustum_cull == 1)
+        {
+                if(culling_data.is_ortho == 1)
+                {
+                        for(uint i = 0; i < 4; ++i)
+                                visible = visible && dot(culling_data.frustum_planes[i], vec4(center, 1.0f)) > -radius;
+                }
+                else
+                {
+                        visible = visible && center.z * culling_data.frustum_planes[0].y - abs(center.x) * culling_data.frustum_planes[0].x > -radius;
+                        visible = visible && center.z * culling_data.frustum_planes[0].w - abs(center.y) * culling_data.frustum_planes[0].z > -radius;
+                        visible = visible && -center.z + radius > culling_data.znear && -center.z - radius < culling_data.zfar;
+                }
+        }
+
+	if(culling_data.cone_cull == 1)
+	{
+		if(culling_data.is_ortho == 1)
+		{
+			visible = visible && dot(center.xyz, cone_axis) < cone_cutoff;
+		}
+		else
+		{
+			visible = visible && dot(center, cone_axis) < cone_cutoff * length(center.xyz) + radius;
+		}
+	}
+
+        if(culling_data.occlusion_cull == 1)
+        {
+                if(visible)
+                {
+                        vec4 aabb;
+                        if(projectSphere(center, radius, culling_data.znear, culling_data.p00, culling_data.p11, aabb))
+                        {
+                                float width = (aabb.z - aabb.x) * culling_data.pyramid_w;
+                                float height = (aabb.w - aabb.y) * culling_data.pyramid_h;
+
+                                float level = floor(log2(max(width, height)));
+                                float depth = textureLod(depthPyramid, (aabb.xy + aabb.zw) * 0.5, level).x;
+                                float depthSphere = culling_data.znear / (-center.z - radius);
+
+                                visible = visible && depthSphere >= depth;
+                        }
+                }
+        }
+
+        return visible;
+}
+
+shared uint drawOffset;
+
+void main()
+{
+	uint gID = gl_GlobalInvocationID.x;
+	if(gID >= in_arguments.w)
+		return;
+
+	ClusterInstance instance = instances[gID];
+	MeshCluster cluster = clusters[instance.cluster];
+	vec4 center = objects[instance.object].transform * vec4(cluster.sphere.xyz, 1.0f);
+	float radius = objects[instance.object].cull_scale * cluster.sphere.w;
+	vec3 cone_axis = mat3(objects[instance.object].transform) * cluster.cone.xyz;
+	
+	uint bucket = objects[instance.object].pack_bucket_lcount >> 16;
+
+	bool visible = is_visible(center, radius, cone_axis, cluster.cone.w);
+	visibility[gID] = uint(visible);
+
+	if(visible)
+	{
+		uint drawOffset = atomicAdd(out_arguments[bucket], 1);
+
+		IndirectCommand cmd;
+		cmd.index_count = cluster.index_count;
+		cmd.instance_count = 1;
+		cmd.index_offset = cluster.index_offset;
+		cmd.vertex_offset = cluster.vertex_offset;
+		#ifdef VISBUFFER
+		cmd.instance_id = gID;
+		#else
+		cmd.instance_id = instance.object;
+		#endif
+
+		uint commandIndex = drawOffset + buckets[bucket].offset;
+		commands[commandIndex] = cmd;
+	}
+}

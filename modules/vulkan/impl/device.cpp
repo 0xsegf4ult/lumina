@@ -105,10 +105,12 @@ Device::Device(vk::Device _handle, vk::Instance owner, GPUInfo _gpu, DeviceFeatu
 	
 	sampler_ci.magFilter = vk::Filter::eNearest;
 	sampler_ci.minFilter = vk::Filter::eNearest;
+	sampler_ci.mipmapMode = vk::SamplerMipmapMode::eNearest;
 	sampler_prefabs[3] = handle.createSampler(sampler_ci);
 
 	sampler_ci.magFilter = vk::Filter::eLinear;
 	sampler_ci.minFilter = vk::Filter::eLinear;
+	sampler_ci.mipmapMode = vk::SamplerMipmapMode::eLinear;
 	sampler_ci.addressModeU = vk::SamplerAddressMode::eClampToBorder;
 	sampler_ci.addressModeV = vk::SamplerAddressMode::eClampToBorder;
 	sampler_ci.addressModeW = vk::SamplerAddressMode::eClampToBorder;
@@ -119,6 +121,7 @@ Device::Device(vk::Device _handle, vk::Instance owner, GPUInfo _gpu, DeviceFeatu
 
 	sampler_ci.magFilter = vk::Filter::eNearest;
 	sampler_ci.minFilter = vk::Filter::eNearest;
+	sampler_ci.mipmapMode = vk::SamplerMipmapMode::eNearest;
 	sampler_ci.compareEnable = false;
 	sampler_ci.compareOp = vk::CompareOp::eAlways;
 	sampler_ci.magFilter = vk::Filter::eLinear;

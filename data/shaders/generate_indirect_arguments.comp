@@ -1,0 +1,16 @@
+#version 450
+#extension GL_EXT_scalar_block_layout: require
+
+layout (local_size_x = 1) in;
+
+layout(scalar, binding = 0) buffer ArgumentBuffer
+{
+	uvec4 arguments;
+};
+
+void main()
+{
+	arguments.x = (arguments.w + 31u) / 32u;
+	arguments.y = 1u;
+	arguments.z = 1u;
+}
