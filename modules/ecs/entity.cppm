@@ -43,22 +43,22 @@ public:
 		return internal != rhs.internal;
 	}
 
-	constexpr handle_type as_handle() const noexcept
+	[[nodiscard]] constexpr handle_type as_handle() const noexcept
 	{
 		return internal & handle_mask;
 	}
 
-	constexpr version_type as_version() const noexcept
+	[[nodiscard]] constexpr version_type as_version() const noexcept
 	{
 		return internal >> version_shift;
 	}
 
-	constexpr handle_type data() const noexcept
+	[[nodiscard]] constexpr handle_type data() const noexcept
 	{
 		return internal;
 	}
 
-	constexpr bool is_valid() const noexcept
+	[[nodiscard]] constexpr bool is_valid() const noexcept
 	{
 		return internal != null;
 	}

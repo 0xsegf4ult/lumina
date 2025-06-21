@@ -303,7 +303,7 @@ public:
 	}
 
 	template <size_t Num>
-	constexpr auto demote()
+	constexpr auto demote() const
 	{
 		static_assert(N == M);
 		static_assert(Num < N);

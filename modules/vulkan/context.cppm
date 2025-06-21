@@ -251,8 +251,8 @@ public:
 			{
 				.drawIndirectCount = true,
 				.storageBuffer8BitAccess = true,
-				.shaderSampledImageArrayNonUniformIndexing = true,
 				.shaderInt8 = true,
+				.shaderSampledImageArrayNonUniformIndexing = true,
 				.descriptorBindingSampledImageUpdateAfterBind = true,
 				.descriptorBindingPartiallyBound = true,
 				.descriptorBindingVariableDescriptorCount = true,

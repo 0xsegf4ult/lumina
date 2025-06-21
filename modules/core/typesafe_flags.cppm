@@ -24,6 +24,9 @@ public:
         constexpr typesafe_flags(const typesafe_flags& val) noexcept = default;
         constexpr typesafe_flags& operator=(const typesafe_flags& rhs) noexcept = default;
 
+	constexpr typesafe_flags(typesafe_flags&& val) noexcept = default;
+	constexpr typesafe_flags& operator=(typesafe_flags&& rhs) noexcept = default;
+
         constexpr auto operator<=>(const typesafe_flags& rhs) const = default;
 
         constexpr typesafe_flags operator&(const typesafe_flags& rhs) const noexcept

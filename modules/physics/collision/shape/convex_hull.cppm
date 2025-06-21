@@ -32,11 +32,11 @@ public:
 	
 	static RefCounted<CShape> create(const BoxShapeDescription& desc)
 	{
-		float xe = desc.edges.x * 0.5f;
-		float ye = desc.edges.y * 0.5f;
-		float ze = desc.edges.z * 0.5f;
+		const float xe = desc.edges.x * 0.5f;
+		const float ye = desc.edges.y * 0.5f;
+		const float ze = desc.edges.z * 0.5f;
 
-		CHullShape* col = new CHullShape();
+		auto* col = new CHullShape();
 		col->bounds.mins = vec3{-xe, -ye, -ze};
 		col->bounds.maxs = vec3{xe, ye, ze};
 		col->density = desc.density;
@@ -119,7 +119,7 @@ public:
 
 	static RefCounted<CShape> create(const CHullShapeDescription& desc)
 	{
-		CHullShape* col = new CHullShape();
+		auto* col = new CHullShape();
 		col->density = desc.density;
 
 		log::error("physics: unimplemented arbitrary convex hull shape!");
@@ -127,13 +127,13 @@ public:
 		return RefCounted<CShape>{static_cast<CShape*>(col)};
 	}
 
-	virtual vec3 get_support(const vec3& dir) const override
+	vec3 get_support(const vec3& dir) const override
 	{
 		std::uint32_t index{0u};
 		float maxproj = vec3::dot(dir, vertices[index]);
 		for(std::uint32_t i = 1; i < std::uint32_t(vertices.size()); i++)
 		{
-			float proj = vec3::dot(dir, vertices[i]);
+			const float proj = vec3::dot(dir, vertices[i]);
 			if(proj > maxproj)
 			{
 				index = i;
@@ -144,19 +144,19 @@ public:
 		return vertices[index];
 	}
 
-	virtual float get_convex_radius() const override
+	float get_convex_radius() const override
 	{
 		return 0.0f;
 	}
 
 	std::span<const vec3> get_vertices() const
 	{
-		return {&vertices[0], 8};
+		return {vertices.data(), 8};
 	}
 
 	std::span<const Plane> get_planes() const
 	{
-		return {&planes[0], 6};
+		return {planes.data(), 6};
 	}
 
 	std::span<const halfedge> get_edges() const

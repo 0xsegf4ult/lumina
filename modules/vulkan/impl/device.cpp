@@ -88,7 +88,7 @@ Device::Device(vk::Device _handle, vk::Instance owner, GPUInfo _gpu, DeviceFeatu
                 .compareEnable = false,
                 .compareOp = vk::CompareOp::eAlways,
                 .minLod = 0.0f,
-                .maxLod = 1e7f,
+                .maxLod = vk::LodClampNone,
                 .unnormalizedCoordinates = false
         };
 
@@ -253,9 +253,9 @@ std::optional<uint32_t> Device::get_memory_type(uint32_t type, vk::MemoryPropert
 	return std::nullopt;
 }
 
-vk::Sampler Device::get_prefab_sampler(SamplerPrefab prefab) const
+vk::Sampler Device::get_prefab_sampler(SamplerPrefab sampler) const
 {
-	return sampler_prefabs[static_cast<size_t>(prefab)];
+	return sampler_prefabs[static_cast<size_t>(sampler)];
 }	
 
 uint64_t Device::current_frame_number() const
@@ -293,6 +293,11 @@ BufferHandle Device::create_buffer(const BufferKey& key)
 
         auto mem_req = handle.getBufferMemoryRequirements(buf);
         auto mem_idx = get_memory_type(mem_req.memoryTypeBits, decode_buffer_domain(key.domain));
+	if(!mem_idx.has_value())
+	{
+		log::error("create_buffer: failed to find memory type");
+		return nullptr;
+	}
 
 	auto alloc_chain = vk::StructureChain<vk::MemoryAllocateInfo, vk::MemoryAllocateFlagsInfo>
 	{
@@ -340,7 +345,7 @@ ImageHandle Device::proxy_image(const ImageKey& key, vk::Image object)
 ImageHandle Device::create_image(const ImageKey& key)
 {
 	ZoneScoped;
-	vk::ImageType type = image_type_from_size(key.width, key.height, key.depth);
+	const vk::ImageType type = image_type_from_size(key.width, key.height, key.depth);
 
 	vk::ImageUsageFlagBits default_usage_flags = vk::ImageUsageFlagBits{};
 
@@ -363,7 +368,7 @@ ImageHandle Device::create_image(const ImageKey& key)
 		}
 	};
 
-	vk::Image image = handle.createImage
+	const vk::Image image = handle.createImage
 	({
 		.flags = img_flags,
 		.imageType = type,
@@ -378,9 +383,9 @@ ImageHandle Device::create_image(const ImageKey& key)
 		.initialLayout = vk::ImageLayout::eUndefined
 	});
 	set_object_name(image, key.debug_name);
-	vk::MemoryRequirements mem_req = handle.getImageMemoryRequirements(image);
+	auto mem_req = handle.getImageMemoryRequirements(image);
 
-	vk::MemoryPropertyFlags mem_property = vk::MemoryPropertyFlagBits::eDeviceLocal;
+	const vk::MemoryPropertyFlags mem_property = vk::MemoryPropertyFlagBits::eDeviceLocal;
 	auto mem_type = get_memory_type(mem_req.memoryTypeBits, mem_property);
 	if(!mem_type.has_value())
 	{
@@ -388,7 +393,7 @@ ImageHandle Device::create_image(const ImageKey& key)
 		return nullptr;
 	}
 
-	vk::DeviceMemory memory = handle.allocateMemory
+	const vk::DeviceMemory memory = handle.allocateMemory
 	({
 		.allocationSize = mem_req.size,
 		.memoryTypeIndex = mem_type.value()
@@ -413,11 +418,10 @@ ImageHandle Device::create_image(const ImageKey& key)
 		}	
 		memcpy(upload_buffer->mapped, key.initial_data, is);
 		//FIXME: assumes 1 level and layer
-		auto aspect = is_depth_format(key.format) ? vk::ImageAspectFlagBits::eDepth : vk::ImageAspectFlagBits::eColor;
 
 		vk::BufferImageCopy copy_region
 		{
-			.imageSubresource = {aspect, 0, 0, 1},
+			.imageSubresource = {get_format_aspect(key.format), 0, 0, 1},
 			.imageExtent = {key.width, key.height, key.depth}
 		};
 
@@ -457,7 +461,7 @@ ImageHandle Device::create_image(const ImageKey& key)
 ImageViewHandle Device::create_image_view(const ImageViewKey& key)
 {
 	ZoneScoped;
-	vk::ImageView vh = handle.createImageView
+	const vk::ImageView vh = handle.createImageView
 	({
 		.image = key.image->get_handle(),
 		.viewType = key.view_type,
@@ -471,7 +475,7 @@ ImageViewHandle Device::create_image_view(const ImageViewKey& key)
 		},
 		.subresourceRange = 
 		{
-			is_depth_format(key.format) ? vk::ImageAspectFlagBits::eDepth : (is_stencil_format(key.format) ? vk::ImageAspectFlagBits::eStencil : vk::ImageAspectFlagBits::eColor),
+			get_format_aspect(key.format),
 			key.level, key.levels,
 			key.layer, key.layers
 		}
@@ -485,7 +489,7 @@ void Device::release_resource(Queue queue, ReleaseRequest&& req)
 {
 	auto& qd = queues[static_cast<size_t>(queue)];
 	req.timeline = qd.frame_tvals[qd.frame_counter.load() % num_ctx];
-	qd.released_resources.emplace_back(std::move(req));
+	qd.released_resources.push_back(req);
 }
 
 CommandBuffer Device::request_command_buffer(Queue queue, std::string_view dbg_name)
@@ -522,11 +526,7 @@ CommandBuffer Device::request_command_buffer(Queue queue, std::string_view dbg_n
 	if(!dbg_name.empty())
 		set_object_name(cmd, dbg_name);
 
-	vk::CommandBufferBeginInfo bufbegin
-	{
-		.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit
-	};
-	cmd.begin(bufbegin);
+	cmd.begin({.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
 	cpool.cmd_counter++;
 	return {this, cmd, threadID, queue, fidx, dbg_name};
 }
@@ -569,7 +569,7 @@ uint64_t Device::submit(CommandBuffer& cmd, submit_signal_timeline_t)
 	auto queue = cmd.queue;
 	submit(cmd);
 
-	uint64_t val;
+	uint64_t val = 0;
 	submit_queue(queue, &val);
 	return val;
 }
@@ -609,7 +609,7 @@ void Device::submit_queue_nolock(Queue queue, uint64_t* sig_timeline)
 			log::warn("submit_queue: command buffer exists across frame boundaries");
 
 		auto wsi_stages = cmd.requires_wsi_sync();
-		auto batch = &qd.batch_data[cur_batch];
+		auto* batch = &qd.batch_data[cur_batch];
 
 		auto wsem = cmd.get_wait_semaphores();
 		if(!wsem.empty())
@@ -682,7 +682,7 @@ void Device::submit_queue_nolock(Queue queue, uint64_t* sig_timeline)
 
 	for(size_t i = 0; i < qd.batch_data.size(); i++)
         {
-		if(qd.batch_data[i].cmd.size() < 1)
+		if(qd.batch_data[i].cmd.empty())
 			log::warn("submit_queue_nolock: submitting empty batch");
 
 		qd.submit_batches[i] =
@@ -696,7 +696,7 @@ void Device::submit_queue_nolock(Queue queue, uint64_t* sig_timeline)
                 };
         }
 
-	if(qd.submit_batches.size() < 1)
+	if(qd.submit_batches.empty())
 		log::warn("submit_queue_nolock: not submitting any batches!");
 
 	[[maybe_unused]] auto status = qd.handle.submit2(static_cast<uint32_t>(qd.submit_batches.size()), qd.submit_batches.data(), nullptr);
@@ -797,7 +797,7 @@ void Device::advance_timeline(Queue queue)
 		auto result = handle.waitSemaphores(wait, sem_wait_timeout);
 		if(result == vk::Result::eTimeout)
 		{
-			uint64_t val;
+			uint64_t val = 0;
 			[[maybe_unused]] auto s1 = handle.getSemaphoreCounterValue(qd.semaphore, &val);
 			log::warn("gpu timeline wait on queue {} timed out [cpu {:#x}][gpu {:#x}]", get_queue_name(queue), qd.frame_tvals[fidx], val);
 			std::abort();
@@ -879,7 +879,7 @@ void Device::begin_frame()
 		auto get_heap_budget = [this, &props, &budget](vulkan::BufferDomain dom)
 		{
 
-			vk::MemoryPropertyFlags flags = decode_buffer_domain(dom);
+			const vk::MemoryPropertyFlags flags = decode_buffer_domain(dom);
 			uint32_t index = 0;
 			for(uint32_t i = 0; i < props.memoryTypeCount; i++)
 				if(props.memoryTypes[i].propertyFlags == flags)
@@ -904,7 +904,7 @@ void Device::end_frame()
 Shader* Device::try_get_shader(const std::filesystem::path& path)
 {
 	ZoneScoped;
-	Handle<Shader> shandle{fnv::hash(path.c_str())};
+	const Handle<Shader> shandle{fnv::hash(path.c_str())};
 	
 	{
 		std::shared_lock<std::shared_mutex> lock{shader_cache.lock};
@@ -938,11 +938,9 @@ vk::DescriptorSetLayout Device::get_descriptor_set_layout(const DescriptorSetLay
 	}
 
 	{
-		std::unique_lock<std::shared_mutex> lock{ds_cache.layout_lock, std::defer_lock};
-
 		auto result = create_descriptor_layout(handle, key, is_push);
 
-		lock.lock();
+		std::unique_lock<std::shared_mutex> lock{ds_cache.layout_lock};
 		ds_cache.layout_data[key] = result;
 		return ds_cache.layout_data[key];
 	}
@@ -958,11 +956,9 @@ PipelineLayout& Device::get_pipeline_layout(const PipelineLayoutKey& key)
 	}
 
 	{
-		std::unique_lock<std::shared_mutex> lock{pso_cache.layout_lock, std::defer_lock};
-
 		PipelineLayout layout;
 		uint32_t num_dsl = 0;
-		for(auto& dslkey : key.dsl_keys)
+		for(const auto& dslkey : key.dsl_keys)
 		{
 			if(dslkey.is_empty())
 				break;
@@ -972,17 +968,15 @@ PipelineLayout& Device::get_pipeline_layout(const PipelineLayoutKey& key)
 			num_dsl++;
 		}
 
-		vk::PipelineLayoutCreateInfo layoutci
-		{
+		layout.handle = handle.createPipelineLayout
+		({
 		 	.setLayoutCount = num_dsl,
 			.pSetLayouts = layout.ds_layouts.data(),
 			.pushConstantRangeCount = key.pconst.size ? 1u : 0u,
 			.pPushConstantRanges = key.pconst.size ? &key.pconst : nullptr
-		};
+		});
 
-		auto result = handle.createPipelineLayout(layoutci);
-		layout.handle = result;
-		lock.lock();
+		std::unique_lock<std::shared_mutex> lock{pso_cache.layout_lock};
 		pso_cache.layout_data[key] = layout;
 		return pso_cache.layout_data[key];
 	}
@@ -998,7 +992,6 @@ Pipeline* Device::try_get_pipeline(const GraphicsPSOKey& key)
 	}
 
 	{
-		std::unique_lock<std::shared_mutex> lock{pso_cache.gfx_lock, std::defer_lock};
 		Pipeline pipe;
 		
 		std::array<Shader*, max_shader_stages> shaders;
@@ -1009,8 +1002,8 @@ Pipeline* Device::try_get_pipeline(const GraphicsPSOKey& key)
 			if(shader.empty())
 				break;
 
-			Handle<Shader> shandle{fnv::hash(shader.c_str())};
-			Shader* sptr = try_get_shader(shader);
+			const Handle<Shader> shandle{fnv::hash(shader.c_str())};
+			auto* sptr = try_get_shader(shader);
 			if(!sptr) 
 				return nullptr;
 
@@ -1030,7 +1023,7 @@ Pipeline* Device::try_get_pipeline(const GraphicsPSOKey& key)
 		pipe.layout = layout;
 		pipe.pipeline = *result;
 
-		lock.lock();
+		std::unique_lock<std::shared_mutex> lock{pso_cache.gfx_lock};
 		pso_cache.gfx_data[key] = pipe;
 		return &pso_cache.gfx_data[key];
 	}
@@ -1046,11 +1039,10 @@ Pipeline* Device::try_get_pipeline(const ComputePSOKey& key)
 	}
 
 	{
-		std::unique_lock<std::shared_mutex> lock{pso_cache.comp_lock, std::defer_lock};
 		Pipeline pipe;
 
-		Handle<Shader> shandle{fnv::hash(key.shader.c_str())};
-		Shader* sptr = try_get_shader(key.shader);
+		const Handle<Shader> shandle{fnv::hash(key.shader.c_str())};
+		auto* sptr = try_get_shader(key.shader);
 		if(!sptr)
 			return nullptr;
 
@@ -1066,7 +1058,7 @@ Pipeline* Device::try_get_pipeline(const ComputePSOKey& key)
 		pipe.layout = layout;
 		pipe.pipeline = *result;
 
-		lock.lock();
+		std::unique_lock<std::shared_mutex> lock{pso_cache.comp_lock};
 		pso_cache.comp_data[key] = pipe;
 		return &pso_cache.comp_data[key];
 	}	

@@ -47,7 +47,8 @@ enum class Key
         KP_DELETE, KP_0,
         KP_1, KP_2, KP_3,
         KP_4, KP_5, KP_6,
-        KP_7, KP_8, KP_9
+        KP_7, KP_8, KP_9,
+	NUM_KEYS
 };
 
 enum class ButtonState : std::uint8_t

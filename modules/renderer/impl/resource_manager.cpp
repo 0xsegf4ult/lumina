@@ -1288,7 +1288,7 @@ void ResourceManager::copy_texture_data(uint32_t count)
 		auto num_layers = entry.image->get_key().layers;
 		for(uint32_t level = 0; level < num_mips; level++)
 		{
-			auto& subres = entry.image->get_subresource(level, 0);
+			const auto& subres = entry.image->get_subresource(level, 0);
 			data.copy_cmd[level] = 
 			{
 				.bufferOffset = entry.offset + subres.byte_offset,

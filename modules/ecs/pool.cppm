@@ -108,7 +108,7 @@ public:
 		data.push_back(comp);
 	}
 
-	void erase(entity ent)
+	void erase(entity ent) override
 	{
 		auto packed = base_type::operator[](ent);
 		base_type::erase(ent);

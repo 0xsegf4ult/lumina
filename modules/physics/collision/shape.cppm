@@ -42,8 +42,8 @@ public:
 protected:
 	CShapeType type;
 	AABB bounds;
-	float density;
-	float mass;
+	float density{1.0f};
+	float mass{1.0f};
 	mat3 inertia_tensor;
 };
 

@@ -169,8 +169,8 @@ vec3 oct_snorm_to_vec3(const Vector<uint16_t, 2>& input)
 		return std::clamp(static_cast<float>(s) * (1.0f / static_cast<float>((uint64_t(1) << 15) -1 )), -1.0f, 1.0f);
 	};
 
-	float fx = float_cast(input.x);
-	float fy = float_cast(input.y);
+	const float fx = float_cast(input.x);
+	const float fy = float_cast(input.y);
 
 	vec3 v{fx, fy, 1.0f - (std::abs(fx) + std::abs(fy))};
 
@@ -211,14 +211,14 @@ Vector<uint16_t, 2> vec3_to_oct_snorm(const vec3& input, [[maybe_unused]]bool hi
 
 float encode_diamond(const vec2& p)
 {
-	float x = p.x / (std::abs(p.x) + std::abs(p.y));
+	const float x = p.x / (std::abs(p.x) + std::abs(p.y));
 
 	auto sgn = [](float v) -> float
 	{
 		return (v > 0.0f) - (v < 0.0f);
 	};
 
-	float py_sign = sgn(p.y);
+	const float py_sign = sgn(p.y);
 	return -py_sign * 0.25f * x + 0.5f + py_sign * 0.25f;
 }
 
@@ -230,11 +230,11 @@ float encode_tangent(const vec3& normal, const vec3& tangent, bool flip)
 	else
 		t1 = vec3{normal.z, 0.0f, -normal.x};
 
-	t1.normalize();
+	const vec3 nt1 = vec3::normalize(t1);
 
-	vec3 t2 = vec3::cross(t1, normal);
-	vec2 packed_tangent = vec2(vec3::dot(tangent, t1), vec3::dot(tangent, t2));
-	float diamond = encode_diamond(packed_tangent);
+	const vec3 t2 = vec3::cross(nt1, normal);
+	const vec2 packed_tangent = vec2(vec3::dot(tangent, nt1), vec3::dot(tangent, t2));
+	const float diamond = encode_diamond(packed_tangent);
 
 	uint32_t fbits = std::bit_cast<uint32_t>(diamond);
 	if(flip)

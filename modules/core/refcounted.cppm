@@ -12,6 +12,8 @@ public:
 	RefCountEnabled() = default;
 	RefCountEnabled(const RefCountEnabled&) = delete;
 	RefCountEnabled& operator=(const RefCountEnabled&) = delete;
+	RefCountEnabled(RefCountEnabled&&) = delete;
+	RefCountEnabled& operator=(RefCountEnabled&&) = delete;
 
 	void add_ref() noexcept
 	{
@@ -60,6 +62,9 @@ public:
 
 	RefCounted& operator=(const RefCounted& other) noexcept
 	{
+		if(this == &other)
+			return *this;
+		
 		if(data != other.data)
 		{
 			if(data)

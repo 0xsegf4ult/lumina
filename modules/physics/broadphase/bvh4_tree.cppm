@@ -24,23 +24,23 @@ struct BVH4NodeID
 
 	operator uint32_t() const { return handle; }
 
-	constexpr bool is_body() const noexcept
+	[[nodiscard]] constexpr bool is_body() const noexcept
 	{
 		return handle & BVH4Node::is_rigidbody_node_bit;
 	}
 
-	constexpr bool is_node() const noexcept
+	[[nodiscard]] constexpr bool is_node() const noexcept
 	{
 		return !is_body();
 	}
 
-	constexpr Handle<BVH4Node> as_node() const noexcept
+	[[nodiscard]] constexpr Handle<BVH4Node> as_node() const noexcept
 	{
 		assert(is_node());
 		return Handle<BVH4Node>{handle};
 	}
 
-	constexpr Handle<Rigidbody> as_body() const noexcept
+	[[nodiscard]] constexpr Handle<Rigidbody> as_body() const noexcept
 	{
 		assert(is_body());
 		return Handle<Rigidbody>{handle & (~BVH4Node::is_rigidbody_node_bit)};
@@ -94,15 +94,13 @@ TreeBuildResult build_tree(TreeBuildContext&& ctx)
 		ZoneScoped;
 		if(id.is_body())
 			return ctx.rr.read_body(id.as_body()).get_transformed_bounds();
-		else
-		{
-			BVH4Node& n = ctx.alloc.get(id.as_node());
-			AABB bnd = n.get_child_bounds(0);
-			for(uint32_t c = 1; c < 4; c++)
-				bnd = AABB::merge(bnd, n.get_child_bounds(c));
+	
+		const BVH4Node& n = ctx.alloc.get(id.as_node());
+		AABB bnd = n.get_child_bounds(0);
+		for(uint32_t c = 1; c < 4; c++)
+			bnd = AABB::merge(bnd, n.get_child_bounds(c));
 
-			return bnd;
-		}
+		return bnd;
 	};
 
 	if(ctx.nodes.size() == 1)
@@ -113,7 +111,7 @@ TreeBuildResult build_tree(TreeBuildContext&& ctx)
 		return {ctx.nodes[0], get_node_bounds(ctx.nodes[0])};
 	}
 
-	Handle<BVH4Node> root = ctx.alloc.allocate();
+	const Handle<BVH4Node> root = ctx.alloc.allocate();
 	BVH4Node& root_node = ctx.alloc.get(root);
 	root_node.invalidate();
 	root_node.dirty = (ctx.force_dirty_level > 0u);
@@ -162,7 +160,7 @@ TreeBuildResult build_tree(TreeBuildContext&& ctx)
 			}
 
 			uint32_t axis = 0;
-			vec3 len = range.bounds.maxs - range.bounds.mins;
+			const vec3 len = range.bounds.maxs - range.bounds.mins;
 			if(len.y > len.x)
 				axis = 1;
 			if(len.z > len.y && len.z > len.x)
@@ -191,7 +189,7 @@ TreeBuildResult build_tree(TreeBuildContext&& ctx)
 				hlb = AABB::merge(hlb, node_data[i].bounds);
 			}
 
-			TreeBuildRange hl{{}, hlb, range.first, hl_count, range.level + increment_level};
+			const TreeBuildRange hl{{}, hlb, range.first, hl_count, range.level + increment_level};
 
 			{
 			ZoneScopedN("build_range_s1");
@@ -200,7 +198,7 @@ TreeBuildResult build_tree(TreeBuildContext&& ctx)
 				hrb = AABB::merge(hrb, node_data[i].bounds);
 			}
 			
-			TreeBuildRange hr{{}, hrb, range.first + hl_count, range.count - hl_count, range.level + increment_level};
+			const TreeBuildRange hr{{}, hrb, range.first + hl_count, range.count - hl_count, range.level + increment_level};
 
 			return std::make_pair(hl, hr);
 		};
@@ -231,7 +229,7 @@ TreeBuildResult build_tree(TreeBuildContext&& ctx)
 		{
 			for(uint32_t i = r.first; i < r.first + r.count; i++)
 			{
-				BVH4NodeID cid = node_data[i].handle;
+				const BVH4NodeID cid = node_data[i].handle;
 				node.children[i - r.first] = cid;
 				node.set_child_bounds(i - r.first, node_data[i].bounds);
 				if(cid.is_body())
@@ -250,7 +248,7 @@ TreeBuildResult build_tree(TreeBuildContext&& ctx)
 				{
 					if(quads[i].count == 1)
 					{
-						BVH4NodeID cid = node_data[quads[i].first].handle;
+						const BVH4NodeID cid = node_data[quads[i].first].handle;
 						node.children[i] = cid;
 						node.set_child_bounds(i, quads[i].bounds);
 						if(cid.is_body())
@@ -303,7 +301,7 @@ void propagate_dirty_flag(ObjectPool<BVH4Node>& alloc, Handle<BVH4Node> node)
 	}
 };
 
-void propagate_node_bounds(ObjectPool<BVH4Node>& alloc, Handle<BVH4Node> node, AABB bounds)
+void propagate_node_bounds(ObjectPool<BVH4Node>& alloc, Handle<BVH4Node> node, const AABB& bounds)
 {
 	ZoneScoped;
 	uint32_t idx = node;
@@ -410,12 +408,10 @@ public:
 
 		for(auto body : bodies)
 		{
-			AABB rbounds = rigidbody_interface->read_body(body).get_transformed_bounds();
-			uint64_t data = rigidbody_interface->read_body(body).userdata;
-			BVH4NodeID nid;
-			uint32_t cid;
-			nid = data >> 32;
-			cid = data & 0x3;
+			const AABB rbounds = rigidbody_interface->read_body(body).get_transformed_bounds();
+			const uint64_t data = rigidbody_interface->read_body(body).userdata;
+			const BVH4NodeID nid = data >> 32;
+			const uint32_t cid = data & 0x3;
 
 			assert(nid.is_node());
 
@@ -436,13 +432,11 @@ public:
 
 		for(auto body : bodies)
 		{
-			BVH4NodeID nid;
-			uint32_t cid;
 
-			uint64_t data = rigidbody_interface->read_body(body).userdata;
+			const uint64_t data = rigidbody_interface->read_body(body).userdata;
 			rigidbody_interface->get(body).userdata = static_cast<uint64_t>(BVH4Node::invalid_index) << 32;
-			nid = data >> 32;
-			cid = data & 0x3;
+			const BVH4NodeID nid = data >> 32;
+			const uint32_t cid = data & 0x3;
 
 			assert(nid.is_node());
 
@@ -461,7 +455,7 @@ public:
 
 		dirty = false;
 
-		Handle<BVH4Node> root = get_current_root();
+		const Handle<BVH4Node> root = get_current_root();
 
 		std::array<BVH4NodeID, 128> n_stack;
 		uint32_t n_stack_top = 0;
@@ -474,7 +468,7 @@ public:
 		ZoneScopedN("collect_dirty");
 		for(;;)
 		{
-			BVH4NodeID id = n_stack[n_stack_top];
+			const BVH4NodeID id = n_stack[n_stack_top];
 			if(id.is_body())
 			{
 				ntree_nodes[ntree_top++] = id;
@@ -485,7 +479,7 @@ public:
 
 				if(node.dirty)
 				{
-					for(auto& child : node.children)
+					for(const auto& child : node.children)
 					{
 						if(child == BVH4Node::invalid_index)
 							continue;
@@ -551,7 +545,7 @@ public:
 
 		log::debug("switching root");
 
-		uint32_t new_root = (active_root + 1) % 2;
+		const uint32_t new_root = (active_root + 1) % 2;
 		root_nodes[new_root].store(root_switch_target.load());
 		root_switch_target = BVH4Node::invalid_index;
 		active_root = new_root;
@@ -575,7 +569,7 @@ public:
 			float t;
 		};
 
-		float inf = std::numeric_limits<float>::infinity();
+		const float inf = std::numeric_limits<float>::infinity();
 
 		std::array<RCStackEntry, 128> c_stack;
 		uint32_t c_stack_top = 0;
@@ -587,13 +581,13 @@ public:
 
 		for(;;)
 		{
-			RCStackEntry entry = c_stack[c_stack_top];
+			const RCStackEntry entry = c_stack[c_stack_top];
 
 			if(entry.t < cur_ray_t)
 			{
 				if(entry.id.is_node())
 				{
-					BVH4Node& node = allocator->get(entry.id.as_node());
+					const BVH4Node& node = allocator->get(entry.id.as_node());
 					const SIMD4AABB bnd = node.extract_bounds_simd4();
 
 					vec3 inv_r_dir{1.0f};
@@ -607,7 +601,7 @@ public:
 					for(uint32_t i = 0; i < 4; i++)
 						tmp_cstack[i] = RCStackEntry{BVH4NodeID{node.children[i]}, ray_t[i]};
 
-					std::sort(&tmp_cstack[0], &tmp_cstack[0] + 4, [](const RCStackEntry& lhs, const RCStackEntry& rhs)
+					std::sort(std::begin(tmp_cstack), std::end(tmp_cstack), [](const RCStackEntry& lhs, const RCStackEntry& rhs)
 					{
 						return lhs.t > rhs.t;
 					});
@@ -660,7 +654,7 @@ public:
 
 		for(;;)
 		{
-			CStackEntry entry = c_stack[c_stack_top];
+			const CStackEntry entry = c_stack[c_stack_top];
 
 			if(entry.t < cur_ray_t)
 			{
@@ -688,7 +682,7 @@ public:
 					for(uint32_t i = 0; i < 4; i++)
 						tmp_cstack[i] = CStackEntry{BVH4NodeID{node.children[i]}, ray_t[i]};
 
-					std::sort(&tmp_cstack[0], &tmp_cstack[0] + 4, [](const CStackEntry& lhs, const CStackEntry& rhs)
+					std::sort(std::begin(tmp_cstack), std::end(tmp_cstack), [](const CStackEntry& lhs, const CStackEntry& rhs)
 					{
 						return lhs.t > rhs.t;
 					});
@@ -734,7 +728,7 @@ public:
 
 			for(;;)
 			{
-				BVH4NodeID entry = c_stack[c_stack_top];
+				const BVH4NodeID entry = c_stack[c_stack_top];
 
 				if(entry.is_body())
 				{
@@ -766,7 +760,7 @@ public:
 					for(uint32_t i = 0; i < 4; i++)
 						tmp_c_stack[i] = {children[i], box_t[i]};
 					
-					std::sort(&tmp_c_stack[0], &tmp_c_stack[0] + 4, [](const CStackEntry& lhs, const CStackEntry& rhs)
+					std::sort(std::begin(tmp_c_stack), std::end(tmp_c_stack), [](const CStackEntry& lhs, const CStackEntry& rhs)
 					{
 						return lhs.test > rhs.test;
 					});

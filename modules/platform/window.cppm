@@ -58,7 +58,7 @@ struct EventListener
 class Window
 {
 public:
-	Window(uint32_t _w, uint32_t _h) : w{_w}, h{_h}
+	Window(uint32_t _w, uint32_t _h) noexcept : w{_w}, h{_h}
 	{
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		handle = glfwCreateWindow(static_cast<int>(w), static_cast<int>(h), "lumina::engine", nullptr, nullptr);
@@ -108,9 +108,11 @@ public:
 			Window* wnd = static_cast<Window*>(glfwGetWindowUserPointer(wptr));
 			wnd->scroll_input(dx, dy);
 		});
+
+		key_state.resize(std::to_underlying(Key::NUM_KEYS));
 	}
 
-	~Window()
+	~Window() noexcept
 	{
 		glfwDestroyWindow(handle);
 	}
@@ -120,7 +122,7 @@ public:
 		return glfwWindowShouldClose(handle);
 	}
 
-	void pump_events()
+	void pump_events() noexcept
 	{
 		glfwPollEvents();
 	}
@@ -146,14 +148,14 @@ public:
 			callback(w, h);
 	}
 
-	GLFWwindow* native_handle() const
+	[[nodiscard]] GLFWwindow* native_handle() const
 	{
 		return handle;
 	}
 
-	void keyboard_input(Key key, KeyState state)
+	void keyboard_input(Key key, KeyState state) noexcept
 	{
-		key_state[key] = state;
+		key_state[std::to_underlying(key)] = state;
 
 		for(auto& [layer, callback] : key_event_listeners)
 		{
@@ -162,7 +164,7 @@ public:
 		}
 	}
 
-	void char_input(unsigned int c)
+	void char_input(unsigned int c) noexcept
 	{
 		for(auto& [layer, callback] : char_event_listeners)
 		{
@@ -171,7 +173,7 @@ public:
 		}	
 	}
 
-	void mouse_input(MouseButton button, ButtonState state)
+	void mouse_input(MouseButton button, ButtonState state) noexcept
 	{
 		for(auto& [layer, callback] : mouse_button_event_listeners)
 		{
@@ -180,7 +182,7 @@ public:
 		}
 	}
 
-	void mouse_move_input(double x, double y)
+	void mouse_move_input(double x, double y) noexcept
 	{
 		if(invalidate_mouse)
 		{
@@ -201,7 +203,7 @@ public:
 		}
 	}
 
-	void set_mouse_pos(double x, double y)
+	void set_mouse_pos(double x, double y) noexcept
 	{
 		m_deltaX = 0.0;
 		m_deltaY = 0.0;
@@ -219,7 +221,7 @@ public:
 		}
 	}
 
-	void scroll_input(double dx, double dy)
+	void scroll_input(double dx, double dy) noexcept
 	{
 		for(auto& [layer, callback] : scroll_event_listeners)
 		{
@@ -267,31 +269,31 @@ public:
 		resize_event_listeners.push_back(callback);
 	}
 
-	bool is_key_down(Key k)
+	[[nodiscard]] bool is_key_down(Key k) const noexcept
 	{
-		return key_state[k] == KeyState::Down;
+		return key_state[std::to_underlying(k)] == KeyState::Down;
 	}
 
-	bool is_key_down(Key k, InputLayer layer)
+	[[nodiscard]] bool is_key_down(Key k, InputLayer layer) const noexcept
 	{
 		if(!(layer & cur_layer))
 			return false;
 
-		return key_state[k] == KeyState::Down;
+		return key_state[std::to_underlying(k)] == KeyState::Down;
 	}
 
-	std::pair<double, double> get_mouse_pos()
+	[[nodiscard]] std::pair<double, double> get_mouse_pos()
 	{
 		return std::make_pair(m_lastX, m_lastY);
 	}
 
-	std::pair<double, double> get_mouse_delta(InputLayer layer = InputLayers::Engine)
+	[[nodiscard]] std::pair<double, double> get_mouse_delta(InputLayer layer = InputLayers::Engine) noexcept
 	{
 		if(!(layer & cur_layer))
 			return std::make_pair(0.0, 0.0);
 
-		double dx = m_deltaX;
-		double dy = m_deltaY;
+		const double dx = m_deltaX;
+		const double dy = m_deltaY;
 
 		m_deltaX = 0.0;
 		m_deltaY = 0.0;
@@ -299,7 +301,7 @@ public:
 		return std::make_pair(dx, dy);
 	}
 
-	std::pair<uint32_t, uint32_t> get_extent()
+	[[nodiscard]] std::pair<uint32_t, uint32_t> get_extent() const noexcept
 	{
 		return std::make_pair(w, h);
 	}
@@ -309,7 +311,7 @@ private:
 	double m_lastY = 0.0;
 	double m_deltaX = 0.0;
 	double m_deltaY = 0.0;
-	std::map<Key, KeyState> key_state;
+	std::vector<KeyState> key_state;
 
 	std::vector<EventListener<KeyEventCallback>> key_event_listeners;
 	std::vector<EventListener<CharEventCallback>> char_event_listeners;

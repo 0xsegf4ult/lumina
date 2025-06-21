@@ -22,7 +22,7 @@ enum class MotionType
 
 struct RigidbodyDescription
 {
-	Transform initial_transform{};
+	Transform initial_transform;
 	const RefCounted<CShape>& shape;
 	BodyType body_type{BodyType::Dynamic};
 	MotionType motion_type{MotionType::Discrete};
@@ -51,7 +51,7 @@ struct Rigidbody
 	MotionType motion_type;
 	std::uint64_t userdata;
 
-	AABB get_transformed_bounds() const
+	[[nodiscard]] constexpr AABB get_transformed_bounds() const
 	{
 		vec3 mins = collider->get_bounds().mins + transform.translation;
 		vec3 maxs = collider->get_bounds().maxs + transform.translation;
@@ -66,7 +66,7 @@ struct Rigidbody
 			const vec3 zp{0.0f, 0.0f, 1.0f};
 
 			mat4 local_to_world = transform.as_matrix();
-			mat3 world_to_local = mat3::transpose(Quaternion::make_mat3(transform.rotation));
+			const mat3 world_to_local = mat3::transpose(Quaternion::make_mat3(transform.rotation));
 
 			const vec3 xn_loc = (xn * world_to_local);
 			const vec3 yn_loc = (yn * world_to_local);
@@ -148,7 +148,7 @@ public:
 	{
 		for(auto& body : bodies)
 		{
-			std::uint32_t index = body & Rigidbody::handle_mask;
+			const std::uint32_t index = body & Rigidbody::handle_mask;
 			std::unique_lock<std::shared_mutex> lock{body_locks[index % mutex_slots]};
 			allocator.deallocate(Handle<Rigidbody>{index});
 		}
@@ -156,7 +156,7 @@ public:
 
 	Rigidbody& get(Handle<Rigidbody> handle)
 	{
-		std::uint32_t index = handle & Rigidbody::handle_mask;
+		const std::uint32_t index = handle & Rigidbody::handle_mask;
 		std::unique_lock<std::shared_mutex> lock{body_locks[index % mutex_slots]};
 
 		return allocator.get(Handle<Rigidbody>{index});
@@ -164,7 +164,7 @@ public:
 
 	const Rigidbody& read_body(Handle<Rigidbody> handle) 
 	{
-		std::uint32_t index = handle & Rigidbody::handle_mask;
+		const std::uint32_t index = handle & Rigidbody::handle_mask;
 		std::shared_lock<std::shared_mutex> lock{body_locks[index & mutex_slots]};
 
 		return allocator.get(Handle<Rigidbody>{index});

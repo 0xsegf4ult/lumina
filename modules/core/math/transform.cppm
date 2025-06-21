@@ -94,7 +94,7 @@ constexpr std::tuple<Vector<T, 3>, basic_quat<T>, Vector<T, 3>> decompose(Matrix
 	}
 	else
 	{
-		static size_t next[3] = {1, 2, 0};
+		static const size_t next[3] = {1, 2, 0};
 		size_t i = 0;
 
 		if(mat[1][1] > mat[0][0])

@@ -163,8 +163,9 @@ public:
 		});
 		*(spd_globalatomic->map<uint32_t>()) = 0u;
 
-		vk::SamplerCreateInfo samplerci
+		const vk::StructureChain<vk::SamplerCreateInfo, vk::SamplerReductionModeCreateInfo> chain =
 		{
+			{
 			.magFilter = vk::Filter::eLinear,
 			.minFilter = vk::Filter::eLinear,
 			.mipmapMode = vk::SamplerMipmapMode::eNearest,
@@ -175,13 +176,9 @@ public:
 			.compareEnable = false,
 			.compareOp = vk::CompareOp::eAlways,
 			.minLod = 0.0f,
-			.maxLod = 1e7f,
+			.maxLod = vk::LodClampNone,
 			.unnormalizedCoordinates = false
-		};
-
-		vk::StructureChain<vk::SamplerCreateInfo, vk::SamplerReductionModeCreateInfo> chain =
-		{
-			samplerci,
+			},
 			{
 			.reductionMode = vk::SamplerReductionMode::eMin
 			}
@@ -194,13 +191,19 @@ public:
 		device.get_handle().destroySampler(dp_sampler);
 	}
 
+	GPUScene(const GPUScene&) = delete;
+	GPUScene(GPUScene&&) = delete;
+
+	GPUScene& operator=(const GPUScene&) = delete;
+	GPUScene& operator=(GPUScene&&) = delete;
+
 	Handle<RenderView> register_render_view(CullingData&& desc)
 	{
 		views.push_back(RenderView{});
 		auto& view = views.back();
 		view.culling_data = std::move(desc);
 
-		uint32_t pipe_count = desc.is_shadow ? 4 : bucket_counter * 6;
+		const uint32_t pipe_count = view.culling_data.is_shadow ? 4 : bucket_counter * 6;
 		view.culling_data_cbv = device.create_buffer
 		({
 			.domain = vulkan::BufferDomain::DeviceMapped,
@@ -301,7 +304,7 @@ public:
 	Handle<RenderObject> register_object(RenderObject&& obj, array_proxy<Handle<RenderView>> views)
 	{
 		obj.bucket = determine_object_bucket(obj);
-		render_objects.push_back(obj);
+		render_objects.push_back(std::move(obj));
 
 		Handle<RenderObject> rh{static_cast<uint32_t>(render_objects.size())};
 
@@ -313,7 +316,7 @@ public:
 			get_view(handle).insert_queue.push_back(rh);
 		}
 
-		dirty_objects.push_back(std::make_pair(rh, false));
+		dirty_objects.emplace_back(rh, false);
 		return rh;
 	}
 
@@ -324,7 +327,7 @@ public:
 		if(tf)
 			object.transform = *tf;
 
-		dirty_objects.push_back(std::make_pair(obj, false));
+		dirty_objects.emplace_back(obj, false);
 	}
 
 	RenderObject& get_object(Handle<RenderObject> obj)
@@ -358,15 +361,13 @@ public:
 				auto& object = get_object(handle);
 				auto& t = object.transform;
 
-				render::Mesh& mesh = resource_manager.get_mesh(object.mesh);
+				const auto& mesh = resource_manager.get_mesh(object.mesh);
 				if(!mesh.in_gpumem)
 					continue;
 			
-				auto tmp = template_from_material(object.material);
-
 				processed = true;
 				auto tm = object.transform.as_matrix();
-				uint32_t packed_bucket_lcount = (std::to_underlying(object.bucket) << 16) | mesh.lod_count;
+				const uint32_t packed_bucket_lcount = (std::to_underlying(object.bucket) << 16) | mesh.lod_count;
 				ObjectInstance data
 				{
 					tm,
@@ -423,7 +424,7 @@ public:
 		for(auto& view : views)
 		{
 			refresh_view(view);
-			uint32_t pipe_count = view.culling_data.is_shadow ? 4 : bucket_counter * 6;
+			const uint32_t pipe_count = view.culling_data.is_shadow ? 4 : bucket_counter * 6;
 			cmd.vk_object().fillBuffer(view.instance_argument_buffer->handle, 0, sizeof(uvec4), 0u);
 			cmd.vk_object().fillBuffer(view.cluster_argument_buffer->handle, 0, sizeof(uint32_t) * pipe_count, 0u);
 				
@@ -552,7 +553,7 @@ public:
 
 			gcd->viewmat = cd.camera->get_view_matrix();
 
-			vec2 cplanes = cd.camera->get_clip_planes();
+			const vec2 cplanes = cd.camera->get_clip_planes();
 			gcd->znear = cplanes.x;
 			gcd->zfar = cplanes.y;
 
@@ -568,8 +569,8 @@ public:
 			}
 			else
 			{
-				vec4 frustumX = Plane(projT[3] + projT[0]).normalize().as_vector();
-				vec4 frustumY = Plane(projT[3] + projT[1]).normalize().as_vector();
+				const vec4 frustumX = Plane(projT[3] + projT[0]).normalize().as_vector();
+				const vec4 frustumY = Plane(projT[3] + projT[1]).normalize().as_vector();
 				gcd->frustum_planes[0] = vec4{frustumX.x, frustumX.z, frustumY.y, frustumY.z};
 			}
 
@@ -604,7 +605,6 @@ public:
 		for(auto& view : views)
 		{
 			auto& cd = view.culling_data;
-			uint32_t pipe_count = view.culling_data.is_shadow ? 4 : bucket_counter * 6;
 			auto size = view.instances.size();
 			if(!size)
 				continue;
@@ -1003,11 +1003,11 @@ private:
 			assert(mtl_bucket_offset.contains(tmp));
 			auto bucket_offset = (view.culling_data.is_shadow ? 0u : mtl_bucket_offset[tmp]) + std::to_underlying(object.bucket);
 			
-			view.instances.push_back(Handle<RenderObject>{handle - 1});
+			view.instances.emplace_back(handle - 1);
 			view.cluster_bucket_sizes[bucket_offset] += resource_manager.get_mesh(object.mesh).lods[0].cluster_count;
 		}
 
-		uint32_t pipe_count = view.culling_data.is_shadow ? 4 : bucket_counter * 6;
+		const uint32_t pipe_count = view.culling_data.is_shadow ? 4 : bucket_counter * 6;
 		for(uint32_t i = 0; i < pipe_count; i++)
 		{
 			view.cluster_bucket_offsets[i] = 0u;

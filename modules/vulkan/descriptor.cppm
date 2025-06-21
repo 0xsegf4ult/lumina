@@ -35,7 +35,7 @@ export struct DescriptorSetLayoutKey
 
 	uint8_t binding_arraysize[16];	
 
-	constexpr bool is_empty() const noexcept
+	[[nodiscard]] constexpr bool is_empty() const noexcept
 	{
 		return sampled_image_bindings == 0 && storage_image_bindings == 0 && separate_image_bindings == 0 && sampler_bindings == 0 && uniform_buffer_bindings == 0 && storage_buffer_bindings == 0;
 	}
@@ -184,6 +184,7 @@ export vk::DescriptorSetLayout create_descriptor_layout(vk::Device device, const
 		layout_ci.flags |= vk::DescriptorSetLayoutCreateFlagBits::eUpdateAfterBindPool;
 
 		std::vector<vk::DescriptorBindingFlags> bflags;
+		bflags.reserve(bindings.size());
 		for([[maybe_unused]]auto& binding : bindings)
 		{
 			bflags.push_back

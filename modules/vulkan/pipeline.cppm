@@ -274,7 +274,7 @@ export PipelineLayoutKey build_pipe_layout(std::span<Shader*> shaders)
 
 	for(size_t i = 0; i < 4; i++)
 	{
-		for(auto shader : shaders)
+		for(auto* shader : shaders)
 		{
 			if(!shader || shader->dsl_keys[i].is_empty())
 				continue;
@@ -299,7 +299,7 @@ export PipelineLayoutKey build_pipe_layout(std::span<Shader*> shaders)
 	}
 
 	layout.pconst = shaders[0]->pconst;
-	for(auto shader : shaders)
+	for(auto* shader : shaders)
 	{
 		if(!shader)
 			break;
@@ -361,11 +361,11 @@ export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk:
 
 	uint32_t g_att = 0;
 	uint32_t g_att_offset = 0;
-	for(auto& binding: key.vert_desc)
+	for(const auto& binding: key.vert_desc)
 	{
 		uint32_t offset = 0;
 		uint32_t att = 0;
-		for(att = 0; auto& attribute : binding)
+		for(att = 0; const auto& attribute : binding)
 		{
 			auto size = vk_format_size(attribute);
 			if(!size)
@@ -394,7 +394,7 @@ export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk:
 		num_vertex_bindings++;
 	}
 
-	vk::PipelineVertexInputStateCreateInfo vtxinput
+	const vk::PipelineVertexInputStateCreateInfo vtxinput
 	{
 		.vertexBindingDescriptionCount = num_vertex_bindings,
 		.pVertexBindingDescriptions = vbindings.data(),
@@ -402,22 +402,22 @@ export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk:
 		.pVertexAttributeDescriptions = vattr.data()
 	};
 	
-	vk::PipelineInputAssemblyStateCreateInfo input_asm
+	const vk::PipelineInputAssemblyStateCreateInfo input_asm
 	{
 		.topology = key.primitive.topology,
 		.primitiveRestartEnable = false
 	};
 
-	vk::PipelineTessellationStateCreateInfo tessellation
+	const vk::PipelineTessellationStateCreateInfo tessellation
 	{
 		.patchControlPoints = key.primitive.patch_ctrl
 	};
 
-	vk::PipelineViewportStateCreateInfo viewport{.viewportCount = 1, .scissorCount = 1};
+	const vk::PipelineViewportStateCreateInfo viewport{.viewportCount = 1, .scissorCount = 1};
 
-	vk::PipelineRasterizationStateCreateInfo rasterization
+	const vk::PipelineRasterizationStateCreateInfo rasterization
 	{
-		.depthClampEnable = (key.depth_mode == DepthMode::Shadowcast) ? true : false,
+		.depthClampEnable = (key.depth_mode == DepthMode::Shadowcast),
 		.rasterizerDiscardEnable = false,
 		.polygonMode = key.primitive.polymode,
 		.frontFace = vk::FrontFace::eCounterClockwise,
@@ -425,7 +425,7 @@ export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk:
 		.lineWidth = 1.0f
 	};
 
-	vk::PipelineMultisampleStateCreateInfo multisample
+	const vk::PipelineMultisampleStateCreateInfo multisample
 	{
 		.rasterizationSamples = ms_mode_to_sample_count(key.multisample_mode),
 		.sampleShadingEnable = false
@@ -433,11 +433,11 @@ export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk:
 
 	vk::PipelineDepthStencilStateCreateInfo depthstencil
 	{
-		.depthTestEnable = (key.att_formats.depth != vk::Format::eUndefined) ? true : false,
-		.depthWriteEnable = (key.att_formats.depth != vk::Format::eUndefined && key.depth_mode != DepthMode::Equal) ? true : false,
+		.depthTestEnable = (key.att_formats.depth != vk::Format::eUndefined),
+		.depthWriteEnable = (key.att_formats.depth != vk::Format::eUndefined && key.depth_mode != DepthMode::Equal),
 		.depthCompareOp = (key.att_formats.depth != vk::Format::eUndefined) ? depth_mode_compare_op(key.depth_mode) : vk::CompareOp::eAlways,
 		.depthBoundsTestEnable = false,
-		.stencilTestEnable = (key.att_formats.stencil != vk::Format::eUndefined && key.stencil_mode != StencilMode::Disabled) ? true : false
+		.stencilTestEnable = (key.att_formats.stencil != vk::Format::eUndefined && key.stencil_mode != StencilMode::Disabled)
 	};
 
 	if(key.stencil_mode != StencilMode::Disabled)
@@ -451,7 +451,7 @@ export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk:
 	for(uint32_t i = 0; i < num_color_attachments; i++)
 		blend_att[i] = decode_blend_mode(key.blend_modes[i]);
 
-	vk::PipelineColorBlendStateCreateInfo blend
+	const vk::PipelineColorBlendStateCreateInfo blend
 	{
 		.logicOpEnable = false,
 		.attachmentCount = num_color_attachments,
@@ -466,13 +466,13 @@ export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk:
 	};
 	uint32_t num_dstates = 3;
 
-	vk::PipelineDynamicStateCreateInfo dynamic_state
+	const vk::PipelineDynamicStateCreateInfo dynamic_state
 	{
 		.dynamicStateCount = num_dstates,
 		.pDynamicStates = dsenables.data()
 	};
 
-	vk::GraphicsPipelineCreateInfo pipelineci
+	auto [result, pso] = device.createGraphicsPipeline(nullptr, 
 	{
 		.pNext = &dynamic_rendering,
 		.stageCount = num_stages,
@@ -487,9 +487,8 @@ export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk:
 		.pColorBlendState = &blend,
 		.pDynamicState = &dynamic_state,
 		.layout = layout
-	};
+	});
 
-	auto [result, pso] = device.createGraphicsPipeline(nullptr, pipelineci);
 	return pso;
 }
 

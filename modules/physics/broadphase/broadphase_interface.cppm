@@ -16,7 +16,7 @@ export class BroadphaseInterface
 public:
 	BroadphaseInterface(RigidbodyInterface& rr) : allocator{"bvh4_node_allocator"}
 	{
-		uint32_t estimated_max_nodes = 512;
+		const uint32_t estimated_max_nodes = 512;
 		allocator.init(2 * estimated_max_nodes, 2 * estimated_max_nodes);
 
 		num_layers = 1u;
@@ -29,6 +29,12 @@ public:
 	{
 		delete[] layers;
 	}
+
+	BroadphaseInterface(const BroadphaseInterface&) = delete;
+	BroadphaseInterface& operator=(const BroadphaseInterface&) = delete;
+
+	BroadphaseInterface(BroadphaseInterface&&) = delete;
+	BroadphaseInterface& operator=(BroadphaseInterface&&) = delete;
 
 	void request_insert(std::span<Handle<Rigidbody>> rigidbodies)
 	{

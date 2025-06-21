@@ -20,7 +20,7 @@ public:
 	
 	static RefCounted<CShape> create(const CapsuleShapeDescription& desc)
 	{
-		CapsuleShape* col = new CapsuleShape();
+		auto* col = new CapsuleShape();
 		col->bounds.mins = vec3{-desc.radius, -desc.radius - (desc.height * 0.5f), -desc.radius};
 		col->bounds.maxs = vec3{desc.radius, desc.radius + (desc.height * 0.5f), desc.radius};
 		col->radius = desc.radius;
@@ -48,13 +48,13 @@ public:
 
 	// treat capsule as line segment to optimize GJK
 
-	virtual vec3 get_support(const vec3& dir) const override
+	vec3 get_support(const vec3& dir) const override
 	{
 		const float hh = height * 0.5f;
 		return vec3{0.0f, (dir.y > 0.0f) ? hh : -hh, 0.0f};
 	}
 
-	virtual float get_convex_radius() const override
+	float get_convex_radius() const override
 	{
 		return radius;
 	}

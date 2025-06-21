@@ -48,6 +48,12 @@ public:
 		#endif
 	}
 
+	ObjectPool(const ObjectPool&) = delete;
+	ObjectPool(ObjectPool&&) = delete;
+
+	ObjectPool& operator=(const ObjectPool&) = delete;
+	ObjectPool& operator=(ObjectPool&&) = delete;
+
 	void init(uint32_t max_obj, uint32_t prefault = 1)
 	{
 		max_objects = max_obj;

@@ -163,13 +163,23 @@ vk::ImageUsageFlags decode_image_usage(ImageUsage usage)
         }
 }
 
+vk::ImageAspectFlagBits get_format_aspect(vk::Format fmt)
+{
+	if(is_depth_format(fmt))
+		return vk::ImageAspectFlagBits::eDepth;
 
-ImageView::~ImageView()
+	if(is_stencil_format(fmt))
+		return vk::ImageAspectFlagBits::eStencil;
+
+	return vk::ImageAspectFlagBits::eColor;
+}
+
+ImageView::~ImageView() noexcept
 {
 	device->release_resource(Queue::Graphics, {handle, 0});
 }
 
-Image::Image(Device* dev, const ImageKey& k, vk::Image img, vk::DeviceMemory m) : device{dev}, key{k}, handle{img}, memory{m}
+Image::Image(Device* dev, const ImageKey& k, vk::Image img, vk::DeviceMemory m) noexcept : device{dev}, key{k}, handle{img}, memory{m}
 {
 	uint32_t w = key.width;
 	uint32_t h = key.height;
@@ -177,7 +187,7 @@ Image::Image(Device* dev, const ImageKey& k, vk::Image img, vk::DeviceMemory m) 
 	
 	mip_views.resize(key.levels);
 	layer_views.resize(key.layers);
-	vk::ImageType type = image_type_from_size(key.width, key.height, key.depth);
+	const vk::ImageType type = image_type_from_size(key.width, key.height, key.depth);
 
 	for(uint32_t level = 0u; level < key.levels; level++)
 	{
@@ -214,7 +224,7 @@ Image::Image(Device* dev, const ImageKey& k, vk::Image img, vk::DeviceMemory m) 
 	}
 }
 
-Image::~Image()
+Image::~Image() noexcept
 {
 	if(owns_image)
 		device->release_resource(Queue::Graphics, {handle, 0});

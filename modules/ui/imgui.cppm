@@ -188,7 +188,7 @@ public:
 		window->register_key_event_listener
 		(platform::InputLayers::UI, [](platform::Key key, platform::KeyState state)
 		{
-			ImGuiKey imgui_key = platform_key_to_imgui_key(key);
+			const ImGuiKey imgui_key = platform_key_to_imgui_key(key);
 			ImGui::GetIO().AddKeyEvent(imgui_key, (state == platform::KeyState::Down));
 		});
 
@@ -201,7 +201,7 @@ public:
 		window->register_mouse_button_event_listener
 		(platform::InputLayers::UI, [](platform::MouseButton button, platform::ButtonState state)
 		{
-			int btn = static_cast<int>(button);
+			const int btn = static_cast<int>(button);
 			if(btn < ImGuiMouseButton_COUNT)
 				ImGui::GetIO().AddMouseButtonEvent(btn, state == platform::ButtonState::Down);
 		});
@@ -256,13 +256,13 @@ public:
 			hook();
 
 		ImGui::Render();
-		auto draw_data = ImGui::GetDrawData();
+		auto* draw_data = ImGui::GetDrawData();
 
-		ImDrawVert* vmem = static_cast<ImDrawVert*>(perframe_data[device->current_frame_index()].vertex->mapped);
-		ImDrawIdx* imem = static_cast<ImDrawIdx*>(perframe_data[device->current_frame_index()].index->mapped);
+		auto* vmem = static_cast<ImDrawVert*>(perframe_data[device->current_frame_index()].vertex->mapped);
+		auto* imem = static_cast<ImDrawIdx*>(perframe_data[device->current_frame_index()].index->mapped);
 		for(int i = 0; i < draw_data->CmdListsCount; i++)
 		{
-			const ImDrawList* cmd_list = draw_data->CmdLists[i];
+			auto* cmd_list = draw_data->CmdLists[i];
 
 			memcpy(vmem, cmd_list->VtxBuffer.Data, static_cast<size_t>(cmd_list->VtxBuffer.Size) * sizeof(ImDrawVert));
 			memcpy(imem, cmd_list->IdxBuffer.Data, static_cast<size_t>(cmd_list->IdxBuffer.Size) * sizeof(ImDrawIdx));
@@ -282,19 +282,19 @@ public:
 				.shaders = {"imgui.vert", "imgui.frag"}
 			});
 
-			mat4 proj = mat4::make_ortho(0.0f, static_cast<float>(fw), static_cast<float>(fh), 0.0f, 0.0f, 1.0f);
-			ImVec2 clip_off = draw_data->DisplayPos;
-			ImVec2 clip_scale = draw_data->FramebufferScale;
+			const mat4 proj = mat4::make_ortho(0.0f, static_cast<float>(fw), static_cast<float>(fh), 0.0f, 0.0f, 1.0f);
+			const ImVec2 clip_off = draw_data->DisplayPos;
+			const ImVec2 clip_scale = draw_data->FramebufferScale;
 
 			uint32_t idx_offset = 0;
 			int32_t vtx_offset = 0;
 
 			for(int idx = 0; idx < draw_data->CmdListsCount; idx++)
 			{
-				const ImDrawList* cmd_list = draw_data->CmdLists[idx];
+				auto* cmd_list = draw_data->CmdLists[idx];
 				for(int i = 0; i < cmd_list->CmdBuffer.Size; i++)
 				{
-					const ImDrawCmd* draw_cmd = &cmd_list->CmdBuffer[i];
+					auto* draw_cmd = &cmd_list->CmdBuffer[i];
 					if(draw_cmd->UserCallback)
 						draw_cmd->UserCallback(cmd_list, draw_cmd);
 					else
@@ -318,7 +318,7 @@ public:
 						cb.set_scissor(0, scissor);
 						cb.push_constant(&proj, sizeof(mat4));
 						
-						vulkan::Image* tex = reinterpret_cast<vulkan::Image*>(draw_cmd->TextureId);
+						auto* tex = reinterpret_cast<vulkan::Image*>(draw_cmd->TextureId);
 						
 						cb.push_descriptor_set
 						({	

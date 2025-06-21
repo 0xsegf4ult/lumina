@@ -19,7 +19,7 @@ public:
 	
 	static RefCounted<CShape> create(const SphereShapeDescription& desc)
 	{
-		SphereShape* col = new SphereShape();
+		auto* col = new SphereShape();
 		col->bounds.mins = vec3{-desc.radius};
 		col->bounds.maxs = vec3{desc.radius};
 		col->radius = desc.radius;
@@ -43,12 +43,12 @@ public:
 
 	// treat sphere as point to optimize GJK
 	
-	virtual vec3 get_support(const vec3& dir) const override
+	vec3 get_support([[maybe_unused]]const vec3& dir) const override
 	{
 		return vec3{0.0f};
 	}
 
-	virtual float get_convex_radius() const override
+	float get_convex_radius() const override
 	{
 		return radius;
 	}

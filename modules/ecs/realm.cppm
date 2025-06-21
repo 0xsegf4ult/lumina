@@ -46,7 +46,7 @@ public:
 	void kill(const ecs::entity ent)
 	{
 		assert(ent.is_valid());
-		entities_to_recycle.push_back(ecs::entity(ent.as_handle(), ent.as_version() + 1));
+		entities_to_recycle.emplace_back(ent.as_handle(), ent.as_version() + 1);
 	}
 
 	template <typename T, typename... Args>

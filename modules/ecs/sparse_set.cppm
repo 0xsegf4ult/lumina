@@ -15,15 +15,11 @@ public:
 	using iterator = dense_storage_type::iterator;
 
 	sparse_set() = default;
-	sparse_set(const sparse_set& other) noexcept : dense{other.dense}, sparse{other.sparse} {}
+	virtual ~sparse_set() = default;
+	sparse_set(const sparse_set& other) noexcept = default;
 	sparse_set(sparse_set&& other) noexcept : dense{std::move(other.dense)}, sparse{std::move(other.sparse)} {}
 
-	sparse_set& operator=(const sparse_set& other) noexcept
-	{
-		dense = other.dense;
-		sparse = other.sparse;
-		return *this;
-	}
+	sparse_set& operator=(const sparse_set& other) noexcept = default;
 
 	sparse_set& operator=(sparse_set&& other) noexcept
 	{
@@ -42,18 +38,18 @@ public:
 		return dense.end();
 	}
 
-	void swap(sparse_set& other)
+	void swap(sparse_set& other) noexcept
 	{
 		std::swap(sparse, other.sparse);
 		std::swap(dense, other.dense);
 	}
 
-	constexpr entity::handle_type packed_index(entity index) const
+	[[nodiscard]] constexpr entity::handle_type packed_index(entity index) const
 	{
 		return sparse[index.as_handle()];
 	}
 
-	constexpr entity dense_index(entity::handle_type index) const
+	[[nodiscard]] constexpr entity dense_index(entity::handle_type index) const
 	{
 		return dense[index];
 	}
@@ -83,7 +79,7 @@ public:
 		return dense.data();
 	}
 
-	virtual void push_back(entity value)
+	virtual void push_back(const entity value)
 	{
 		dense.push_back(value);
 
@@ -93,16 +89,16 @@ public:
 		sparse[value.as_handle()] = dense.size() - 1;
 	}
 
-	virtual void erase(entity index)
+	virtual void erase(const entity index)
 	{
-		entity tmp = dense.back();
+		const entity tmp = dense.back();
 		dense[sparse[index.as_handle()]] = tmp;
 		sparse[tmp.as_handle()] = sparse[index.as_handle()];
 
 		dense.pop_back();
 	}
 
-	virtual bool contains(entity ent)
+	virtual bool contains(const entity ent)
 	{
 		if(!ent.is_valid())
 			return false;

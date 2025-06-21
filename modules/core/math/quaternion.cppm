@@ -80,11 +80,9 @@ public:
 				mix(begin.w, z.w, a)
 			};
 		}
-		else
-		{
-			T angle = std::acos(dot);
-			return basic_quat<T>{(begin * std::sin((T(1) - a) * angle) + z * std::sin(a * angle)) / std::sin(angle)};
-		}
+		
+		T angle = std::acos(dot);
+		return basic_quat<T>{(begin * std::sin((T(1) - a) * angle) + z * std::sin(a * angle)) / std::sin(angle)};
 	}
 
 	static constexpr auto make_mat3(const basic_quat<T>& quat) noexcept

@@ -132,32 +132,16 @@ struct Vector : public VectorStorage<T, N>
 		return this->data[i];
 	}
 
-	constexpr T magnitude() const noexcept
+	[[nodiscard]] constexpr T magnitude() const noexcept
 	{
 		return std::sqrt(dot(*this, *this));
 	}
 
-	constexpr T magnitude_sqr() const noexcept
+	[[nodiscard]] constexpr T magnitude_sqr() const noexcept
 	{
 		return dot(*this, *this);
 	}
-
-	constexpr Vector normalize() const noexcept
-	{
-		T mag = magnitude();
-
-		// we ARE looking for an exact match to zero here
-		// shut up the compiler complaining about fp comparison
-		#if defined(__clang__)
-		#pragma clang diagnostic push
-		#pragma clang diagnostic ignored "-Wfloat-equal"
-		#endif
-		return (mag != T(0.0)) ? (*this / mag) : Vector<T, N>{T(0.0)};
-		#if defined(__clang__)
-		#pragma clang diagnostic pop
-		#endif
-	}
-
+	
 	template <typename U, size_t... Is>
 	Vector& operator+=(const Vector<U, N, std::index_sequence<Is...>>& v) noexcept
 	{
@@ -190,6 +174,25 @@ struct Vector : public VectorStorage<T, N>
 			((this->data[Is] /= s), ...);
 		}(scalar, std::make_index_sequence<N>{});
 		return *this;
+	}
+
+	static constexpr auto normalize(const Vector<T, N>& v)
+	{
+		auto mag = v.magnitude();
+		
+		// we ARE looking for an exact match to zero here
+		// shut up the compiler complaining about fp comparison
+		#if defined(__clang__)
+		#pragma clang diagnostic push
+		#pragma clang diagnostic ignored "-Wfloat-equal"
+		#endif
+		if(mag == T(0.0))
+		       return Vector<T, N>{T(0.0)};	
+		#if defined(__clang__)
+		#pragma clang diagnostic pop
+		#endif
+
+		return v / mag;
 	}
 
 	template <typename U, size_t... Is>
@@ -257,17 +260,17 @@ struct Vector : public VectorStorage<T, N>
 	static void compute_basis(const Vector<T, 3>& _a, Vector<T, 3>& _b, Vector<T, 3>& _c)
 	{
 		//https://box2d.org/posts/2014/02/computing-a-basis/
-		if(std::abs(_a.x) >= T(0.57735))
+		if(std::abs(_a.x) >= std::numbers::inv_sqrt3_v<T>)
 			_b = Vector<T, 3>{_a.y, -_a.x, T(0.0)};
 		else
 			_b = Vector<T, 3>{T(0.0), _a.z, -_a.y};
 
-		_b = _b.normalize();
+		_b = Vector<T, 3>::normalize(_b);
 		_c = Vector<T, 3>::cross(_a, _b);
 	}
 
 	template <size_t Num>
-	constexpr auto demote()
+	constexpr auto demote() const
 	{
 		static_assert(Num < N);
 		return [this]<size_t... Is>(std::index_sequence<Is...>)

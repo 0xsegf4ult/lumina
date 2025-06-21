@@ -28,11 +28,11 @@ vk::ShaderStageFlagBits infer_shader_kind(const std::filesystem::path& path)
 	const std::string& ext = path.string();
 	if(ext.contains(".vert"))
 		return vk::ShaderStageFlagBits::eVertex;
-	else if(ext.contains(".frag"))
+	if(ext.contains(".frag"))
 		return vk::ShaderStageFlagBits::eFragment;
-	else if(ext.contains(".geom"))
+	if(ext.contains(".geom"))
 		return vk::ShaderStageFlagBits::eGeometry;
-	else if(ext.contains(".comp"))
+	if(ext.contains(".comp"))
 		return vk::ShaderStageFlagBits::eCompute;
 
 	return vk::ShaderStageFlagBits::eAll;
@@ -63,7 +63,7 @@ void shader_reflect(Shader& stg, const std::vector<uint32_t>& spirv)
 
 	auto emit_bindings = [&spvcomp, stage](const spirv_cross::Resource& r, DescriptorSetLayoutKey& dsl)
 	{
-		auto& type = spvcomp.get_type(r.type_id);
+		const auto& type = spvcomp.get_type(r.type_id);
 
 		auto bindpoint = spvcomp.get_decoration(r.id, spv::DecorationBinding);
 		
@@ -80,7 +80,7 @@ void shader_reflect(Shader& stg, const std::vector<uint32_t>& spirv)
 			dsl.binding_arraysize[bindpoint] = type.array[0];
 		}
 
-		std::string dbg_s = "";
+		std::string dbg_s{};
 
 		if(stage & vk::ShaderStageFlagBits::eVertex)
 		{

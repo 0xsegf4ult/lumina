@@ -19,6 +19,7 @@ uint32_t get_mip_levels(uint32_t w, uint32_t h);
 uint32_t format_blockdim(vk::Format fmt);
 uint32_t format_blocksize(vk::Format fmt);
 uint32_t size_for_image(uint32_t w, uint32_t h, vk::Format fmt);
+vk::ImageAspectFlagBits get_format_aspect(vk::Format fmt);
 
 struct ImageViewKey
 {
@@ -35,8 +36,8 @@ struct ImageViewKey
 class ImageView
 {
 public:
-	ImageView(Device* dev, const ImageViewKey& k, vk::ImageView v) : device{dev}, key{k}, handle{v} {}
-	~ImageView();
+	ImageView(Device* dev, const ImageViewKey& k, vk::ImageView v) noexcept : device{dev}, key{k}, handle{v} {}
+	~ImageView() noexcept;
 
 	ImageView(const ImageView&) = delete;
 	ImageView(ImageView&&) = delete;
@@ -44,12 +45,12 @@ public:
 	ImageView& operator=(const ImageView&) = delete;
 	ImageView& operator=(ImageView&&) = delete;
 
-	constexpr vk::ImageView get_handle() const
+	[[nodiscard]] constexpr vk::ImageView get_handle() const
 	{
 		return handle;
 	}
 
-	const ImageViewKey& get_key() const
+	[[nodiscard]] const ImageViewKey& get_key() const
 	{
 		return key;
 	}
@@ -100,8 +101,8 @@ struct ImageKey
 class Image
 {
 public:
-	Image(Device* dev, const ImageKey& k, vk::Image img, vk::DeviceMemory m);
-	~Image();
+	Image(Device* dev, const ImageKey& k, vk::Image img, vk::DeviceMemory m) noexcept;
+	~Image() noexcept;
 
 	Image(const Image&) = delete;
 	Image(Image&&) = delete;
@@ -109,27 +110,27 @@ public:
 	Image& operator=(const Image&) = delete;
 	Image& operator=(Image&&) = delete;
 
-	vk::Image get_handle() const
+	[[nodiscard]] vk::Image get_handle() const
 	{
 		return handle;
 	}
 
-	ImageView* get_default_view() const
+	[[nodiscard]] ImageView* get_default_view() const
 	{
 		return mip_views[0].get();
 	}
 
-	ImageView* get_mip_view(size_t mip) const
+	[[nodiscard]] ImageView* get_mip_view(size_t mip) const
 	{
 		return mip_views[mip].get();
 	}
 
-	ImageView* get_layer_view(size_t layer) const
+	[[nodiscard]] ImageView* get_layer_view(size_t layer) const
 	{
 		return layer_views[layer].get();
 	}
 
-	const ImageKey& get_key() const
+	[[nodiscard]] const ImageKey& get_key() const
 	{
 		return key;
 	}

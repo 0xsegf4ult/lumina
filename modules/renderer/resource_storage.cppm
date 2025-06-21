@@ -15,7 +15,7 @@ struct Mesh
 {
         using Vertex = StaticVertexFormat;
 
-        std::string name{};
+        std::string name;
         vec4 sphere{};
 
         using LODLevel = MeshFormat::MeshLOD;
@@ -33,7 +33,7 @@ struct SkinnedMesh
 {
         using Vertex = SkinnedVertexFormat;
 
-        std::string name{};
+        std::string name;
         vec4 sphere{};
         
 	using LODLevel = MeshFormat::MeshLOD;
@@ -174,7 +174,7 @@ struct MeshStorage
 
 struct TextureLoadData
 {
-	vulkan::ImageHandle image{};
+	vulkan::ImageHandle image;
 	Handle<Texture> texture;
 	uint32_t size;
 	uint32_t offset;

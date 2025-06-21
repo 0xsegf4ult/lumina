@@ -53,7 +53,7 @@ struct BVH4Node
 		dirty = false;
 	}
 
-	void set_child_bounds(uint32_t child, AABB bounds)
+	void set_child_bounds(uint32_t child, const AABB& bounds)
 	{
 		assert(child < 4u);
 
@@ -73,7 +73,7 @@ struct BVH4Node
 			vec3{bounds_maxX[child], bounds_maxY[child], bounds_maxZ[child]}};
 	}
 
-	bool enlarge_child_bounds(uint32_t child, AABB bounds)
+	bool enlarge_child_bounds(uint32_t child, const AABB& bounds)
 	{
 		assert(child < 4u);
 

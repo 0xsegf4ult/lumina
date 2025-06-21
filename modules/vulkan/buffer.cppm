@@ -80,7 +80,7 @@ constexpr vk::BufferUsageFlags decode_buffer_usage(BufferUsage usage)
 struct Buffer
 {
 	Buffer(Device* _dev, vk::Buffer _buf, vk::DeviceMemory _mem, vk::DeviceSize _sz) noexcept : device{_dev}, handle{_buf}, memory{_mem}, size{_sz} {}
-	~Buffer();
+	~Buffer() noexcept;
 
 	Buffer(const Buffer& other) = delete;
 	Buffer& operator=(const Buffer& other) = delete;
@@ -91,12 +91,12 @@ struct Buffer
 	void* mapped = nullptr;
 	
 	template <typename T>
-	constexpr T* map(std::uint32_t offset = 0u) const
+	[[nodiscard]] constexpr T* map(std::uint32_t offset = 0u) const
 	{
 		return reinterpret_cast<T*>(reinterpret_cast<std::byte*>(mapped) + offset);
 	}
 	
-	vk::DeviceAddress device_address();
+	[[nodiscard]] vk::DeviceAddress device_address();
 
 	Device* device;
 	vk::Buffer handle;

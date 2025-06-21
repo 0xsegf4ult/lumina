@@ -27,72 +27,70 @@ vec2 line_segment_to_barycentric(const vec3& a, const vec3& b)
 		const float v = vec3::dot(-a, ab) / lensq;
 		return {1.0f - v, v};
 	}
-	else
-	{
-		if(a.magnitude_sqr() < b.magnitude_sqr())
-			return {1.0f, 0.0f};
-		else
-			return {0.0f, 1.0f};
-	}
+
+	if(a.magnitude_sqr() < b.magnitude_sqr())
+		return {1.0f, 0.0f};
+			
+	return {0.0f, 1.0f};
 }
 
 vec3 triangle_to_barycentric(const vec3& a, const vec3& b, const vec3& c)
 {
 	ZoneScoped;
-	vec3 v0 = b - a;
-	vec3 v1 = c - a;
-	vec3 v2 = c - b;
+	const vec3 v0 = b - a;
+	const vec3 v1 = c - a;
+	const vec3 v2 = c - b;
 
 	// always use the shortest edge for calculating barycentric coordinates
 	// in case of degenerate triangles, calculate barycentrics for longest edge (line segment)
 
 	const float bctri_eps = 1e-12f;
 
-	float d00 = v0.magnitude_sqr();
-	float d11 = v1.magnitude_sqr();
-	float d22 = v2.magnitude_sqr();
+	const float d00 = v0.magnitude_sqr();
+	const float d11 = v1.magnitude_sqr();
+	const float d22 = v2.magnitude_sqr();
 	
 	if(d00 <= d22)
 	{
-		float d01 = vec3::dot(v0, v1);
-		float denom = d00 * d11 - d01 * d01;
+		const float d01 = vec3::dot(v0, v1);
+		const float denom = d00 * d11 - d01 * d01;
 		if(denom < bctri_eps)
 		{
 			if(d00 > d11)
 			{
-				vec2 bcoord = line_segment_to_barycentric(a, b);
+				const vec2 bcoord = line_segment_to_barycentric(a, b);
 				return {bcoord.x, bcoord.y, 0.0f};
 			}
 
-			vec2 bcoord = line_segment_to_barycentric(a, c);
+			const vec2 bcoord = line_segment_to_barycentric(a, c);
 			return {bcoord.x, 0.0f, bcoord.y};
 		}
 
-		float a0 = vec3::dot(a, v0);
-		float a1 = vec3::dot(a, v1);
-		float v = (d01 * a1 - d11 * a0) / denom;
-		float w = (d01 * a0 - d00 * a1) / denom;
+		const float a0 = vec3::dot(a, v0);
+		const float a1 = vec3::dot(a, v1);
+		const float v = (d01 * a1 - d11 * a0) / denom;
+		const float w = (d01 * a0 - d00 * a1) / denom;
 		return {1.0f - v - w, v, w};
 	}
 
-	float d12 = vec3::dot(v1, v2);
-	float denom = d11 * d22 - d12 * d12;
+	const float d12 = vec3::dot(v1, v2);
+	const float denom = d11 * d22 - d12 * d12;
 	if(denom < bctri_eps)
 	{
 		if(d11 > d22)
 		{
-			vec2 bcoord = line_segment_to_barycentric(a, c);
+			const vec2 bcoord = line_segment_to_barycentric(a, c);
 			return {bcoord.x, 0.0f, bcoord.y};
 		}
 
-		vec2 bcoord = line_segment_to_barycentric(b, c);
+		const vec2 bcoord = line_segment_to_barycentric(b, c);
 		return {0.0f, bcoord.x, bcoord.y};
 	}
 
-	float c1 = vec3::dot(c, v1);
-	float c2 = vec3::dot(c, v2);
-	float u = (d22 * c1 - d12 * c2) / denom;
-	float v = (d11 * c2 - d12 * c1) / denom;
+	const float c1 = vec3::dot(c, v1);
+	const float c2 = vec3::dot(c, v2);
+	const float u = (d22 * c1 - d12 * c2) / denom;
+	const float v = (d11 * c2 - d12 * c1) / denom;
 	return {u, v, 1.0f - u - v};
 }
 
@@ -114,13 +112,13 @@ struct SimplexSolution
 SimplexSolution simplex_solve2(const vec3& a, const vec3& b)
 {
 	ZoneScoped;
-	vec2 bcoord = line_segment_to_barycentric(a, b);
+	const vec2 bcoord = line_segment_to_barycentric(a, b);
 	if(bcoord.x <= 0.0f)
 		return {b, true, SimplexVertex::B};
-	else if(bcoord.y <= 0.0f)
+	if(bcoord.y <= 0.0f)
 		return {a, true, SimplexVertex::A};
-	else
-		return {(bcoord.x * a) + (bcoord.y * b), true, SimplexVertex::A | SimplexVertex::B};
+		
+	return {(bcoord.x * a) + (bcoord.y * b), true, SimplexVertex::A | SimplexVertex::B};
 }
 
 SimplexSolution simplex_solve3(const vec3& v_a, const vec3& b, const vec3& v_c)
@@ -131,19 +129,19 @@ SimplexSolution simplex_solve3(const vec3& v_a, const vec3& b, const vec3& v_c)
 
 	bool swap = false;
 	{
-		vec3 ac = v_c - v_a;
-		vec3 bc = v_c - b;
+		const vec3 ac = v_c - v_a;
+		const vec3 bc = v_c - b;
 		swap = vec3::dot(bc, bc) < vec3::dot(ac, ac);
 	}
 
-	vec3 a = swap ? v_c : v_a;
-	vec3 c = swap ? v_a : v_c;
+	const vec3 a = swap ? v_c : v_a;
+	const vec3 c = swap ? v_a : v_c;
 
-	vec3 ab = b - a;
-	vec3 ac = c - a;
-	vec3 ap = -a;
+	const vec3 ab = b - a;
+	const vec3 ac = c - a;
+	const vec3 ap = -a;
 
-	vec3 n = vec3::cross(ab, ac);
+	const vec3 n = vec3::cross(ab, ac);
 
 	const float nrm_degen_eps = 1e-10f;
 	if(n.magnitude_sqr() < nrm_degen_eps)
@@ -154,7 +152,7 @@ SimplexSolution simplex_solve3(const vec3& v_a, const vec3& b, const vec3& v_c)
 		
 		auto check_point = [&best_dist_sq, &closest_f, &closest_p](const vec3& p, uint8_t fset)
 		{
-			float lsq = p.magnitude_sqr();
+			const float lsq = p.magnitude_sqr();
 			if(lsq < best_dist_sq)
 			{
 		
@@ -169,63 +167,63 @@ SimplexSolution simplex_solve3(const vec3& v_a, const vec3& b, const vec3& v_c)
 
 		auto check_line = [&check_point, &best_dist_sq](const vec3& l, const vec3& p, uint8_t fset)
 		{
-			float lsq = l.magnitude_sqr();
+			const float lsq = l.magnitude_sqr();
 			if(lsq > fp_epsilon_sq)
 			{
-				float v = std::clamp(vec3::dot(-p, l) / lsq, 0.0f, 1.0f);
-				vec3 q = p + v * l;
+				const float v = std::clamp(vec3::dot(-p, l) / lsq, 0.0f, 1.0f);
+				const vec3 q = p + v * l;
 				check_point(q, fset);
 			}
 		};
 		
-		vec3 bc = v_c - b;
+		const vec3 bc = v_c - b;
 		check_line(ac, a, SimplexVertex::A | SimplexVertex::C);
 		check_line(bc, b, SimplexVertex::B | SimplexVertex::C);
 		
-		vec3 v_ab = b - v_a;	
+		const vec3 v_ab = b - v_a;	
 		check_line(v_ab, v_a, SimplexVertex::A | SimplexVertex::B);
 
 		return {closest_p, true, closest_f};
 	}
 
 	// region A
-	float d1 = vec3::dot(ab, ap);
-	float d2 = vec3::dot(ac, ap);
+	const float d1 = vec3::dot(ab, ap);
+	const float d2 = vec3::dot(ac, ap);
 	if(d1 <= 0.0f && d2 <= 0.0f)
 		return {a, true, swap ? SimplexVertex::C : SimplexVertex::A};
 
 	// region B
-	vec3 bp = -b;
-	float d3 = vec3::dot(ab, bp);
-	float d4 = vec3::dot(ac, bp);
+	const vec3 bp = -b;
+	const float d3 = vec3::dot(ab, bp);
+	const float d4 = vec3::dot(ac, bp);
 	if(d3 >= 0.0f && d4 <= d3)
 		return {b, true, SimplexVertex::B};
 
 	// region AB
 	if(d1 * d4 <= d3 * d2 && d1 >= 0.0f && d3 <= 0.0f)
 	{
-		float v = d1 / (d1 - d3);
+		const float v = d1 / (d1 - d3);
 		return {a + (v * ab), true, static_cast<uint8_t>(swap ? (SimplexVertex::C | SimplexVertex::B) : (SimplexVertex::A | SimplexVertex::B))};
 	}
 
 	// region C
-	vec3 cp = -c;
-	float d5 = vec3::dot(ab, cp);
-	float d6 = vec3::dot(ac, cp);
+	const vec3 cp = -c;
+	const float d5 = vec3::dot(ab, cp);
+	const float d6 = vec3::dot(ac, cp);
 	if(d6 >= 0.0f && d5 <= d6)
 		return {c, true, swap ? SimplexVertex::A : SimplexVertex::C};
 
 	// region AC
 	if(d5 * d2 <= d1 * d6 && d2 >= 0.0f && d6 <= 0.0f)
 	{
-		float w = d2 / (d2 - d6);
+		const float w = d2 / (d2 - d6);
 		return {a + (w * ac), true, SimplexVertex::A | SimplexVertex::C};
 	}
 
 	// region BC
 	if(d3 * d6 <= d5 * d4 && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f)
 	{
-		float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+		const float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
 		return {b + (w * (c - b)), true, static_cast<uint8_t>(swap ? (SimplexVertex::B | SimplexVertex::A) : (SimplexVertex::B | SimplexVertex::C))};
 	}
 
@@ -236,9 +234,9 @@ bool point_outside_plane(const vec3& p, const vec3& r, const vec3& a, const vec3
 {
 	ZoneScoped;
 
-	vec3 nrm = vec3::cross(b - a, c - a);
-	float signp = vec3::dot(p - a, nrm);
-	float signd = vec3::dot(r - a, nrm);
+	const vec3 nrm = vec3::cross(b - a, c - a);
+	const float signp = vec3::dot(p - a, nrm);
+	const float signd = vec3::dot(r - a, nrm);
 	return signp * signd < -fp_epsilon;
 }
 
@@ -258,7 +256,7 @@ SimplexSolution simplex_solve4(const vec3& a, const vec3& b, const vec3& c, cons
 	if(point_outside_plane(vec3{0.0f}, d, a, b, c))
 	{
 		auto [q, cv, u] = simplex_solve3(a, b, c);
-		float sqdist = q.magnitude_sqr();
+		const float sqdist = q.magnitude_sqr();
 		if(sqdist < best_sqdist)
 		{
 			best_sqdist = sqdist;
@@ -270,7 +268,7 @@ SimplexSolution simplex_solve4(const vec3& a, const vec3& b, const vec3& c, cons
 	if(point_outside_plane(vec3{0.0f}, b, a, c, d))
 	{
 		auto [q, cv, u] = simplex_solve3(a, c, d);
-		float sqdist = q.magnitude_sqr();
+		const float sqdist = q.magnitude_sqr();
 		if(sqdist < best_sqdist)
 		{
 			best_sqdist = sqdist;
@@ -282,7 +280,7 @@ SimplexSolution simplex_solve4(const vec3& a, const vec3& b, const vec3& c, cons
 	if(point_outside_plane(vec3{0.0f}, c, a, d, b))
 	{
 		auto [q, cv, u] = simplex_solve3(a, b, d);
-		float sqdist = q.magnitude_sqr();
+		const float sqdist = q.magnitude_sqr();
 		if(sqdist < best_sqdist)
 		{
 			best_sqdist = sqdist;
@@ -294,10 +292,9 @@ SimplexSolution simplex_solve4(const vec3& a, const vec3& b, const vec3& c, cons
 	if(point_outside_plane(vec3{0.0f}, a, b, d, c))
 	{
 		auto [q, cv, u] = simplex_solve3(b, c, d);
-		float sqdist = q.magnitude_sqr();
+		const float sqdist = q.magnitude_sqr();
 		if(sqdist < best_sqdist)
 		{
-			best_sqdist = sqdist;
 			closest_pt = q;
 			usable = remap_vertices(u, 1, 2, 3);
 		}
@@ -340,7 +337,7 @@ SimplexSolution simplex_solve(Simplex& simplex)
 		std::unreachable();
 	}
 
-	float new_len_sq = res.point.magnitude_sqr();
+	const float new_len_sq = res.point.magnitude_sqr();
 	if(new_len_sq < simplex.len_sq)
 	{
 		simplex.len_sq = new_len_sq;
@@ -387,9 +384,9 @@ export struct gjkConfiguration
 	vec3 saxis_guess = vec3{1.0f, 0.0f, 0.0f};
 };
 
-vec3 get_transformed_support(const CShape& shape, mat4& transform, vec3 search)
+vec3 get_transformed_support(const CShape& shape, const mat4& transform, const vec3& search)
 {
-	vec3 s1 = search * mat3::transpose(transform.demote<3>());
+	const vec3 s1 = search * mat3::transpose(transform.demote<3>());
 	return (vec4{shape.get_support(s1), 1.0f} * transform).demote<3>();
 }
 
@@ -397,25 +394,23 @@ export gjkResult gjk_get_distance(gjkConfiguration& cfg)
 {
 	ZoneScoped;
 
-	float tolerance_sq = cfg.tolerance * cfg.tolerance;
+	const float tolerance_sq = cfg.tolerance * cfg.tolerance;
 	float last_sa_len_sq = std::numeric_limits<float>::max();
 
 	Simplex simplex;
 	vec3 sa = cfg.saxis_guess;
 
-	mat4 transform_2_to_1 = cfg.transform_b.as_matrix() * cfg.transform_a.as_inverse_translation_rotation();
+	const mat4 transform_2_to_1 = cfg.transform_b.as_matrix() * cfg.transform_a.as_inverse_translation_rotation();
 
-	uint32_t lv = 0;
-		
 	for(;;)
 	{
 		// shape A is centered at the origin
 		// shape B is moved into the space of shape A
-		vec3 v0 = cfg.shape_a.get_support(sa);	
-		vec3 v1 = get_transformed_support(cfg.shape_b, transform_2_to_1, -sa);
+		const vec3 v0 = cfg.shape_a.get_support(sa);	
+		const vec3 v1 = get_transformed_support(cfg.shape_b, transform_2_to_1, -sa);
 
-		vec3 m = v0 - v1;
-		float dot = vec3::dot(sa, m);
+		const vec3 m = v0 - v1;
+		const float dot = vec3::dot(sa, m);
 
 		if(dot < 0.0f && dot * dot > simplex.len_sq * cfg.max_dist_sq)
 			return {std::numeric_limits<float>::max(), vec3{0.0f}, vec3{0.0f}, vec3{0.0f}};
@@ -431,10 +426,7 @@ export gjkResult gjk_get_distance(gjkConfiguration& cfg)
 			simplex.num -= 1;
 			break;
 		}
-		else
-		{
-			sa = point;
-		}
+		sa = point;
 
 		if(usable == 0b1111)
 		{
@@ -477,17 +469,17 @@ export gjkResult gjk_get_distance(gjkConfiguration& cfg)
 		return {simplex.len_sq, sa, simplex.va[0], simplex.vb[0]};
 	case 2:
 	{
-		vec2 bc = line_segment_to_barycentric(simplex.vm[0], simplex.vm[1]);
+		const vec2 bc = line_segment_to_barycentric(simplex.vm[0], simplex.vm[1]);
 		return {simplex.len_sq, sa, bc.x * simplex.va[0] + bc.y * simplex.va[1], bc.x * simplex.vb[0] + bc.y * simplex.vb[1]};
 	}
 	case 3:
 	{
-		vec3 bc = triangle_to_barycentric(simplex.vm[0], simplex.vm[1], simplex.vm[2]);
+		const vec3 bc = triangle_to_barycentric(simplex.vm[0], simplex.vm[1], simplex.vm[2]);
 		return {simplex.len_sq, sa, bc.x * simplex.va[0] + bc.y * simplex.va[1] + bc.z * simplex.va[2], bc.x * simplex.vb[0] + bc.y * simplex.vb[1] + bc.z * simplex.vb[2]};
 	}
 	case 4:
 	{
-		vec3 bc = triangle_to_barycentric(simplex.vm[0], simplex.vm[1], simplex.vm[2]);
+		const vec3 bc = triangle_to_barycentric(simplex.vm[0], simplex.vm[1], simplex.vm[2]);
 		return {last_sa_len_sq, sa, bc.x * simplex.va[0] + bc.y * simplex.va[1] + bc.z * simplex.va[2], bc.x * simplex.vb[0] + bc.y * simplex.vb[1] + bc.z * simplex.vb[2]};
 	}
 	default:
@@ -519,38 +511,38 @@ export gjkCastResult gjk_cast_shape(gjkCastConfiguration& cfg)
 	ZoneScoped;
 	
 	float tolerance_sq = cfg.tolerance * cfg.tolerance;
-	float convex_radius_ab = cfg.shape_a.get_convex_radius() + cfg.shape_b.get_convex_radius();
+	const float convex_radius_ab = cfg.shape_a.get_convex_radius() + cfg.shape_b.get_convex_radius();
 
 	Simplex simplex;
 
 	vec3 x{0.0f};
 
-	auto tm_a = cfg.transform_a.as_matrix();
-	auto tm_b = cfg.transform_b.as_matrix();
+	const auto tm_a = cfg.transform_a.as_matrix();
+	const auto tm_b = cfg.transform_b.as_matrix();
 
 	vec3 v = x - (get_transformed_support(cfg.shape_b, tm_b, vec3{0.0f}) - get_transformed_support(cfg.shape_a, tm_a, vec3{0.0f})); 
 
 	vec3 last_v = vec3{0.0f};
 	float lambda = 0.0f;
-	float fraction = cfg.fraction;
+	const float fraction = cfg.fraction;
 
 	bool allow_restart = false;
 
 	for(;;)
 	{
-		vec3 v0 = get_transformed_support(cfg.shape_a, tm_a, -v);
-		vec3 v1 = get_transformed_support(cfg.shape_b, tm_b, v);
-		vec3 vm = x - (v1 - v0);
+		const vec3 v0 = get_transformed_support(cfg.shape_a, tm_a, -v);
+		const vec3 v1 = get_transformed_support(cfg.shape_b, tm_b, v);
+		const vec3 vm = x - (v1 - v0);
 
-		float vdotw = vec3::dot(v, vm) - (convex_radius_ab * v.magnitude());
+		const float vdotw = vec3::dot(v, vm) - (convex_radius_ab * v.magnitude());
 		if(vdotw > 0.0f)
 		{
-			float vdotr = vec3::dot(v, cfg.direction);
+			const float vdotr = vec3::dot(v, cfg.direction);
 			if(vdotr >= 0.0f)
 				return {1.0f, vec3{0.0f}, vec3{0.0f}, vec3{0.0f}};
 
-			float delta = vdotw / vdotr;
-			float last_lambda = lambda;
+			const float delta = vdotw / vdotr;
+			const float last_lambda = lambda;
 			lambda -= delta;
 
 			if(last_lambda == lambda)
@@ -592,10 +584,7 @@ export gjkCastResult gjk_cast_shape(gjkCastConfiguration& cfg)
 			assert(simplex.len_sq == 0.0f);
 			break;
 		}
-		else
-		{
-			v = point;
-		}
+		v = point;
 		
 
 		simplex_reduce(simplex, usable);
@@ -609,9 +598,9 @@ export gjkCastResult gjk_cast_shape(gjkCastConfiguration& cfg)
 	for(uint32_t i = 0; i < simplex.num; i++)
 		simplex.vm[i] = x - (simplex.vb[i] - simplex.va[i]);
 
-	vec3 norm_v = v.normalize();
-	vec3 cr_a = cfg.shape_a.get_convex_radius() * norm_v;
-	vec3 cr_b = cfg.shape_b.get_convex_radius() * norm_v;
+	const vec3 norm_v = vec3::normalize(v);
+	const vec3 cr_a = cfg.shape_a.get_convex_radius() * norm_v;
+	const vec3 cr_b = cfg.shape_b.get_convex_radius() * norm_v;
 
 	vec3 p_a{0.0f};
 	vec3 p_b{0.0f};
@@ -627,7 +616,7 @@ export gjkCastResult gjk_cast_shape(gjkCastConfiguration& cfg)
 	}
 	case 2:
 	{
-		vec2 bcoord = line_segment_to_barycentric(simplex.vm[0], simplex.vm[1]);
+		const vec2 bcoord = line_segment_to_barycentric(simplex.vm[0], simplex.vm[1]);
 		p_b = bcoord.x * simplex.vb[0] + bcoord.y * simplex.vb[1] + cr_b;
 		p_a = lambda > 0.0f ? p_b : bcoord.x * simplex.va[0] + bcoord.y * simplex.va[1] - cr_a;
 		break;
@@ -635,7 +624,7 @@ export gjkCastResult gjk_cast_shape(gjkCastConfiguration& cfg)
 	case 3:
 	case 4:
 	{
-		vec3 bcoord = triangle_to_barycentric(simplex.vm[0], simplex.vm[1], simplex.vm[2]);
+		const vec3 bcoord = triangle_to_barycentric(simplex.vm[0], simplex.vm[1], simplex.vm[2]);
 		p_b = bcoord.x * simplex.vb[0] + bcoord.y * simplex.vb[1] + bcoord.z * simplex.vb[2] + cr_b;
 		p_a = lambda > 0.0f ? p_b : bcoord.x * simplex.va[0] + bcoord.y * simplex.va[1] + bcoord.z * simplex.va[2] - cr_a;
 		break;

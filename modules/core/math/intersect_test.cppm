@@ -17,10 +17,10 @@ vec4 simd_min(const vec4& lhs, const vec4& rhs)
 {
 	vec4 res;
 	__m128 l, r;
-	memcpy(&l, &lhs[0], 16);
-	memcpy(&r, &rhs[0], 16);
+	memcpy(&l, &lhs[0], sizeof(vec4));
+	memcpy(&r, &rhs[0], sizeof(vec4));
 	__m128 vres = _mm_min_ps(l, r);
-	memcpy(&res[0], &vres, 16);
+	memcpy(&res[0], &vres, sizeof(vec4));
 	return res;
 }
 
@@ -28,10 +28,10 @@ vec4 simd_max(const vec4& lhs, const vec4& rhs)
 {
 	vec4 res;
 	__m128 l, r;
-	memcpy(&l, &lhs[0], 16);
-	memcpy(&r, &rhs[0], 16);
+	memcpy(&l, &lhs[0], sizeof(vec4));
+	memcpy(&r, &rhs[0], sizeof(vec4));
 	__m128 vres = _mm_max_ps(l, r);
-	memcpy(&res[0], &vres, 16);
+	memcpy(&res[0], &vres, sizeof(vec4));
 	return res;
 }
 
@@ -49,12 +49,12 @@ inline float ray_test_aabb(vec3 origin, vec3 inv_dir, AABB box)
 {
 	float tmin{0.0f};
 	float tmax{std::numeric_limits<float>::infinity()};
-	float t{std::numeric_limits<float>::infinity()};
+	const float t{std::numeric_limits<float>::infinity()};
 
 	for(uint32_t d = 0; d < 3; d++)
 	{
-		float t1 = (box.mins[d] - origin[d]) * inv_dir[d];
-		float t2 = (box.maxs[d] - origin[d]) * inv_dir[d];
+		const float t1 = (box.mins[d] - origin[d]) * inv_dir[d];
+		const float t2 = (box.maxs[d] - origin[d]) * inv_dir[d];
 
 		tmin = simdlike_min(simdlike_max(t1, tmin), simdlike_max(t2, tmin));
 	       	tmax = simdlike_max(simdlike_min(t1, tmax), simdlike_min(t2, tmax));
@@ -76,12 +76,12 @@ inline vec4 ray_test_aabb_simd4(const vec3& origin, const vec3& inv_dir, const S
 	const vec4 invdY{inv_dir.y};
 	const vec4 invdZ{inv_dir.z};
 
-	vec4 t1x = vec4::scalar_mul(boxes.minX - originX, invdX);
-	vec4 t1y = vec4::scalar_mul(boxes.minY - originY, invdY);
-	vec4 t1z = vec4::scalar_mul(boxes.minZ - originZ, invdZ);
-	vec4 t2x = vec4::scalar_mul(boxes.maxX - originX, invdX);
-	vec4 t2y = vec4::scalar_mul(boxes.maxY - originY, invdY);
-	vec4 t2z = vec4::scalar_mul(boxes.maxZ - originZ, invdZ);
+	const vec4 t1x = vec4::scalar_mul(boxes.minX - originX, invdX);
+	const vec4 t1y = vec4::scalar_mul(boxes.minY - originY, invdY);
+	const vec4 t1z = vec4::scalar_mul(boxes.minZ - originZ, invdZ);
+	const vec4 t2x = vec4::scalar_mul(boxes.maxX - originX, invdX);
+	const vec4 t2y = vec4::scalar_mul(boxes.maxY - originY, invdY);
+	const vec4 t2z = vec4::scalar_mul(boxes.maxZ - originZ, invdZ);
 	
 	tmin = simd_min(simd_max(t1x, tmin), simd_max(t2x, tmin));
 	tmin = simd_min(simd_max(t1y, tmin), simd_max(t2y, tmin));
@@ -91,46 +91,46 @@ inline vec4 ray_test_aabb_simd4(const vec3& origin, const vec3& inv_dir, const S
 	tmax = simd_max(simd_min(t1z, tmax), simd_min(t2z, tmax));
 
 	__m128 r_tmin, r_tmax;
-	memcpy(&r_tmin, &tmin[0], 16);
-	memcpy(&r_tmax, &tmax[0], 16);
+	memcpy(&r_tmin, &tmin[0], sizeof(vec4));
+	memcpy(&r_tmax, &tmax[0], sizeof(vec4));
 	__m128 mask = _mm_cmp_ps(r_tmin, r_tmax, _CMP_LE_OQ);
 	__m128 r_t = _mm_set1_ps(std::numeric_limits<float>::infinity());
 	r_t = _mm_blendv_ps(r_t, r_tmin, mask);
 	vec4 t;
-	memcpy(&t[0], &r_t, 16);
+	memcpy(&t[0], &r_t, sizeof(vec4));
 
 	return t;
 }
 
 inline uvec4 aabb_test_aabb_simd4(const AABB& aabb, const SIMD4AABB& boxes)
 {
-	__m128 lhsminx = _mm_set1_ps(aabb.mins.x);
-	__m128 lhsminy = _mm_set1_ps(aabb.mins.y);
-	__m128 lhsminz = _mm_set1_ps(aabb.mins.z);
-	__m128 lhsmaxx = _mm_set1_ps(aabb.maxs.x);
-	__m128 lhsmaxy = _mm_set1_ps(aabb.maxs.y);
-	__m128 lhsmaxz = _mm_set1_ps(aabb.maxs.z);
+	const __m128 lhsminx = _mm_set1_ps(aabb.mins.x);
+	const __m128 lhsminy = _mm_set1_ps(aabb.mins.y);
+	const __m128 lhsminz = _mm_set1_ps(aabb.mins.z);
+	const __m128 lhsmaxx = _mm_set1_ps(aabb.maxs.x);
+	const __m128 lhsmaxy = _mm_set1_ps(aabb.maxs.y);
+	const __m128 lhsmaxz = _mm_set1_ps(aabb.maxs.z);
 
 	__m128 rhsminx;
-	memcpy(&rhsminx, &boxes.minX[0], 16);
+	memcpy(&rhsminx, &boxes.minX[0], sizeof(vec4));
 	__m128 rhsminy;
-	memcpy(&rhsminy, &boxes.minY[0], 16);
+	memcpy(&rhsminy, &boxes.minY[0], sizeof(vec4));
 	__m128 rhsminz;
-	memcpy(&rhsminz, &boxes.minZ[0], 16);
+	memcpy(&rhsminz, &boxes.minZ[0], sizeof(vec4));
 	__m128 rhsmaxx;
-	memcpy(&rhsmaxx, &boxes.maxX[0], 16);
+	memcpy(&rhsmaxx, &boxes.maxX[0], sizeof(vec4));
 	__m128 rhsmaxy;
-	memcpy(&rhsmaxy, &boxes.maxY[0], 16);
+	memcpy(&rhsmaxy, &boxes.maxY[0], sizeof(vec4));
 	__m128 rhsmaxz;
-	memcpy(&rhsmaxz, &boxes.maxZ[0], 16);
+	memcpy(&rhsmaxz, &boxes.maxZ[0], sizeof(vec4));
 
-	__m128i intersectx = _mm_and_si128(_mm_castps_si128(_mm_cmpgt_ps(lhsmaxx, rhsminx)), _mm_castps_si128(_mm_cmplt_ps(lhsminx, rhsmaxx)));
-	__m128i intersecty = _mm_and_si128(_mm_castps_si128(_mm_cmpgt_ps(lhsmaxy, rhsminy)), _mm_castps_si128(_mm_cmplt_ps(lhsminy, rhsmaxy)));
-	__m128i intersectz = _mm_and_si128(_mm_castps_si128(_mm_cmpgt_ps(lhsmaxz, rhsminz)), _mm_castps_si128(_mm_cmplt_ps(lhsminz, rhsmaxz)));
+	const __m128i intersectx = _mm_and_si128(_mm_castps_si128(_mm_cmpgt_ps(lhsmaxx, rhsminx)), _mm_castps_si128(_mm_cmplt_ps(lhsminx, rhsmaxx)));
+	const __m128i intersecty = _mm_and_si128(_mm_castps_si128(_mm_cmpgt_ps(lhsmaxy, rhsminy)), _mm_castps_si128(_mm_cmplt_ps(lhsminy, rhsmaxy)));
+	const __m128i intersectz = _mm_and_si128(_mm_castps_si128(_mm_cmpgt_ps(lhsmaxz, rhsminz)), _mm_castps_si128(_mm_cmplt_ps(lhsminz, rhsmaxz)));
 
 	__m128i r_res = _mm_and_si128(_mm_and_si128(intersectx, intersecty), intersectz);
 	uvec4 res;
-	memcpy(&res[0], &r_res, 16);
+	memcpy(&res[0], &r_res, sizeof(vec4));
 	return res;
 }
 

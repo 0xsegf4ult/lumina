@@ -53,12 +53,12 @@ public:
 		vec3 up{vector_world_up};
 	};
 
-	constexpr mat4 get_view_matrix() const
+	[[nodiscard]] constexpr mat4 get_view_matrix() const
 	{
 		return mat4::make_translation(-1.0f * pos) * mat4::make_rotY(yaw) * mat4::make_rotX(pitch);
 	}
 
-	constexpr mat4 get_projection_matrix() const
+	[[nodiscard]] constexpr mat4 get_projection_matrix() const
 	{
 		if(proj == CameraProjection::Perspective)
 		{
@@ -81,7 +81,7 @@ public:
 		}
 	}
 
-	mat4 get_persp_mtx_farplane() const
+	[[nodiscard]] mat4 get_persp_mtx_farplane() const
 	{
 		const float focal_length = 1.0f / std::tan(fov / 2.0f);
 		const float aspect_ratio = width / height;
@@ -100,12 +100,12 @@ public:
 		};
 	}
 
-	constexpr mat4 get_matrix() const
+	[[nodiscard]] constexpr mat4 get_matrix() const
 	{
 		return get_view_matrix() * get_projection_matrix();
 	}
 
-	constexpr vec3 get_pos() const
+	[[nodiscard]] constexpr vec3 get_pos() const
 	{
 		return pos;
 	}
@@ -117,7 +117,7 @@ public:
 
 	void look_at(const vec3& at)
 	{
-		const vec3 direction = (at - pos).normalize();
+		const vec3 direction = vec3::normalize(at - pos);
 		pitch = -std::asin(direction.y);
 		yaw = std::atan2(direction.x, -direction.z);
 		update_vectors();
@@ -152,22 +152,22 @@ public:
 		far = info.zfar;	
 	}
 
-	constexpr OrthographicCameraInfo get_ortho_bounds() const
+	[[nodiscard]] constexpr OrthographicCameraInfo get_ortho_bounds() const
 	{
 		return {left, right, bottom, top, near, far};
 	}
 
-	constexpr uvec2 get_res() const
+	[[nodiscard]] constexpr uvec2 get_res() const
 	{
 		return {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
 	}
 
-	constexpr const Camera::Vectors& get_vectors() const
+	[[nodiscard]] constexpr const Camera::Vectors& get_vectors() const
 	{
 		return vectors;
 	}
 
-	constexpr const vec2 get_clip_planes() const
+	[[nodiscard]] constexpr const vec2 get_clip_planes() const
 	{
 		return {near, far};
 	}
@@ -179,16 +179,15 @@ public:
 private:
 	void update_vectors()
 	{
-		vectors.front = 
-		{
+		vectors.front = vec3::normalize 
+		({
 			std::sin(yaw),
 			(proj == CameraProjection::Perspective && mode == CameraMode::FPS) ? 0.0f : -std::sin(pitch),
 			-std::cos(yaw)
-		};
-		vectors.front.normalize();
+		});
 		
-		vectors.right = vec3::cross(vectors.front, vector_world_up).normalize();
-		vectors.up = vec3::cross(vectors.right, vectors.front).normalize();
+		vectors.right = vec3::normalize(vec3::cross(vectors.front, vector_world_up));
+		vectors.up = vec3::normalize(vec3::cross(vectors.right, vectors.front));
 	}
 
 	CameraProjection proj{};

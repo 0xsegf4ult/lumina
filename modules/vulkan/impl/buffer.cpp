@@ -11,7 +11,7 @@ import lumina.core.log;
 
 namespace lumina::vulkan
 {
-	Buffer::~Buffer()
+	Buffer::~Buffer() noexcept
 	{
 		if(device)
 		{

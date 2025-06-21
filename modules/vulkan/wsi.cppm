@@ -34,7 +34,8 @@ vk::PresentModeKHR choose_swapchain_present_mode(const std::vector<vk::PresentMo
 	{
 		if(mode == vk::PresentModeKHR::eMailbox)
 			return mode;
-		else if(mode == vk::PresentModeKHR::eImmediate)
+		
+		if(mode == vk::PresentModeKHR::eImmediate)
 			return mode;
 	}
 	
@@ -107,7 +108,7 @@ public:
 	WSI& operator=(const WSI&) = delete;
 	WSI& operator=(WSI&&) = delete;
 
-	vk::Extent2D get_extent() const
+	[[nodiscard]] vk::Extent2D get_extent() const
 	{
 		return extent;
 	}
@@ -132,20 +133,20 @@ public:
 		return true;
 	}
 
-	SwapchainTexture* begin_frame()
+	[[nodiscard]] SwapchainTexture* begin_frame()
 	{
 		device->begin_frame();
 
 		do
 		{
-			vk::Semaphore acquire_sem = device->wsi_signal_acquire();
+			const vk::Semaphore acquire_sem = device->wsi_signal_acquire();
 			try
 			{
-				vk::ResultValue<uint32_t> index = device->get_handle().acquireNextImageKHR(swapchain, 1000000, acquire_sem, nullptr);
+				const vk::ResultValue<uint32_t> index = device->get_handle().acquireNextImageKHR(swapchain, 1000000, acquire_sem, nullptr);
 				cur_index = index.value;
 				needs_swapchain_rebuild = false;
 			}
-			catch(vk::OutOfDateKHRError ex)
+			catch(vk::OutOfDateKHRError& ex)
 			{
 				window->await_wm_resize();
 				needs_swapchain_rebuild = true;
@@ -167,7 +168,7 @@ public:
 	void end_frame()
 	{
 		device->end_frame();
-		vk::Semaphore present_sem = device->wsi_signal_present();
+		const vk::Semaphore present_sem = device->wsi_signal_present();
 
 		vk::StructureChain<vk::PresentInfoKHR, vk::SwapchainPresentModeInfoEXT> present_chain
 		{
@@ -191,7 +192,7 @@ public:
 		{
 			[[maybe_unused]] auto res = device->get_queue(Queue::Graphics).presentKHR(present_chain.get<vk::PresentInfoKHR>());
 		}
-		catch(vk::OutOfDateKHRError ex)
+		catch(vk::OutOfDateKHRError& ex)
 		{
 			window->await_wm_resize();
 			needs_swapchain_rebuild = true;

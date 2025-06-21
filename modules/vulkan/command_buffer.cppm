@@ -102,8 +102,8 @@ struct WaitSemaphoreInfo
 
 struct CommandBuffer
 {
-	CommandBuffer() : device{nullptr}, cmd{nullptr}, thread{0}, queue{0} {}
-	CommandBuffer(vulkan::Device* dev, vk::CommandBuffer cb, uint32_t tid, Queue q, size_t ci, std::string_view dn = std::string_view{}) : device{dev}, cmd{cb}, thread{tid}, queue{q}, ctx_index{ci}, dbg_name{dn}
+	CommandBuffer() noexcept : device{nullptr}, cmd{nullptr}, thread{0}, queue{0} {}
+	CommandBuffer(vulkan::Device* dev, vk::CommandBuffer cb, uint32_t tid, Queue q, size_t ci, std::string_view dn = std::string_view{}) noexcept : device{dev}, cmd{cb}, thread{tid}, queue{q}, ctx_index{ci}, dbg_name{dn}
 	{
 	}
 
@@ -114,7 +114,7 @@ struct CommandBuffer
 	}
 
 	CommandBuffer& operator=(const CommandBuffer&) = delete;
-	CommandBuffer& operator=(CommandBuffer&& other)
+	CommandBuffer& operator=(CommandBuffer&& other) noexcept
 	{
 		device = other.device;
 		cmd = other.cmd;
@@ -129,51 +129,51 @@ struct CommandBuffer
 		return *this;
 	}
 
-	constexpr vk::CommandBuffer vk_object() const
+	constexpr vk::CommandBuffer vk_object() const noexcept
 	{
 		return cmd;
 	}
 	
-	constexpr vk::PipelineStageFlags2 requires_wsi_sync() const
+	constexpr vk::PipelineStageFlags2 requires_wsi_sync() const noexcept
 	{
 		return wsi_sync;
 	}
 
-	void explicit_set_wsi_sync(vk::PipelineStageFlagBits2 stages)
+	void explicit_set_wsi_sync(vk::PipelineStageFlagBits2 stages) noexcept
 	{
 		wsi_sync |= stages;
 	}
 
-	void memory_barrier(array_proxy<MemoryBarrier> b);
-	void pipeline_barrier(array_proxy<ImageBarrier> b);
-	void pipeline_barrier(array_proxy<BufferBarrier> b);
+	void memory_barrier(array_proxy<MemoryBarrier> b) const noexcept;
+	void pipeline_barrier(array_proxy<ImageBarrier> b) const noexcept;
+	void pipeline_barrier(array_proxy<BufferBarrier> b) const noexcept;
 
-	void begin_render_pass(const RenderPassDesc& rp);
-	void set_scissor(uint32_t offset, vk::Rect2D scissor);
-	void set_viewport(uint32_t offset, vk::Viewport vp);
-	void end_render_pass();
+	void begin_render_pass(const RenderPassDesc& rp) const noexcept;
+	void set_scissor(uint32_t offset, vk::Rect2D scissor) const noexcept;
+	void set_viewport(uint32_t offset, vk::Viewport vp) const noexcept;
+	void end_render_pass() const noexcept;
 
-	void bind_pipeline(const GraphicsPSOKey& pso);
-	void bind_pipeline(const ComputePSOKey& pso);
+	void bind_pipeline(const GraphicsPSOKey& key) noexcept;
+	void bind_pipeline(const ComputePSOKey& key) noexcept;
 
-	void push_constant(void* value, uint32_t size);
+	void push_constant(const void* value, uint32_t size) const noexcept;
 
-	void bind_descriptor_sets(array_proxy<DescriptorSet> sets);
-	void push_descriptor_set(const DescriptorSetPush& set);
-	void bind_vertex_buffers(array_proxy<Buffer*> buffers);
-	void bind_index_buffer(Buffer* buffer, vk::IndexType type = vk::IndexType::eUint32);
-	void draw(uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance);
-	void draw_indirect(Buffer* buffer, vk::DeviceSize offset, uint32_t draw_count, uint32_t stride);
+	void bind_descriptor_sets(array_proxy<DescriptorSet> sets) const noexcept;
+	void push_descriptor_set(const DescriptorSetPush& set) const noexcept;
+	void bind_vertex_buffers(array_proxy<Buffer*> buffers) const noexcept;
+	void bind_index_buffer(Buffer* buffer, vk::IndexType type = vk::IndexType::eUint32) const noexcept;
+	void draw(uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance) const noexcept;
+	void draw_indirect(Buffer* buffer, vk::DeviceSize offset, uint32_t draw_count, uint32_t stride) const noexcept;
 
-	void draw_indexed(uint32_t index_count, uint32_t instance_count, uint32_t first_index, int32_t vertex_offset, uint32_t first_instance);
-	void draw_indexed_indirect(Buffer* buffer, vk::DeviceSize offset, uint32_t draw_count, uint32_t stride);
-	void draw_indexed_indirect_count(Buffer* buffer, vk::DeviceSize offset, Buffer* count_buffer, vk::DeviceSize count_offset, uint32_t max_draw_count, uint32_t stride);
-	void dispatch(uint32_t group_size_x, uint32_t group_size_y, uint32_t group_size_z);
-	void dispatch(uvec3 group_size);
-	void dispatch_indirect(Buffer* buffer, vk::DeviceSize offset);
+	void draw_indexed(uint32_t index_count, uint32_t instance_count, uint32_t first_index, int32_t vertex_offset, uint32_t first_instance) const noexcept;
+	void draw_indexed_indirect(Buffer* buffer, vk::DeviceSize offset, uint32_t draw_count, uint32_t stride) const noexcept;
+	void draw_indexed_indirect_count(Buffer* buffer, vk::DeviceSize offset, Buffer* count_buffer, vk::DeviceSize count_offset, uint32_t max_draw_count, uint32_t stride) const noexcept;
+	void dispatch(uint32_t group_size_x, uint32_t group_size_y, uint32_t group_size_z) const noexcept;
+	void dispatch(uvec3 group_size) const noexcept;
+	void dispatch_indirect(Buffer* buffer, vk::DeviceSize offset) const noexcept;
 
-	void add_wait_semaphore(WaitSemaphoreInfo&& ws);
-	std::span<WaitSemaphoreInfo> get_wait_semaphores();
+	void add_wait_semaphore(WaitSemaphoreInfo&& ws) noexcept;
+	std::span<WaitSemaphoreInfo> get_wait_semaphores() noexcept;
 
 	void debug_name(std::string_view name);
 

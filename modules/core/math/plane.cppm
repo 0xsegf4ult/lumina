@@ -14,7 +14,7 @@ export namespace lumina
 
 		static constexpr basic_plane from_point_and_normal(const Vector<T, 3>& p, const Vector<T, 3>& normal) noexcept
 		{
-			Vector<T, 3> nn = normal.normalize();
+			Vector<T, 3> nn = Vector<T, 3>::normalize(normal);
 			return basic_plane(nn, Vector<T, 3>::dot(p, nn));
 		}
 
