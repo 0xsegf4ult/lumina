@@ -38,7 +38,7 @@ export struct RenderBatch
 	RenderBucket bucket;
 };
 
-struct ObjectInstance
+struct ObjectData
 {
 	mat4 transform;
 	vec4 sphere;
@@ -54,6 +54,12 @@ export struct RenderObject
 	Handle64<Material> material;
 	Transform transform;
 	RenderBucket bucket;
+};
+
+struct ObjectInstance
+{
+	Handle<RenderObject> in_object;
+	uint32_t out_offset{0};
 };
 
 struct ClusterInstance
@@ -83,11 +89,13 @@ export struct CullingData
 	bool frustum_cull{true};
 	bool occlusion_cull{true};
 	bool cone_cull{true};
+	bool coverage_cull{true};
 	bool is_ortho{false};
 	bool is_shadow{false};
 	int forced_lod{-1};
 	float lod_base{10.0f};
 	float lod_step{1.5f};
+	float coverage_threshold{0.005f};
 
 	bool freeze_culling{false};
 };
@@ -99,7 +107,10 @@ struct GPUCullingData
 	uint32_t frustum_cull{1u};
 	uint32_t occlusion_cull{1u};
 	uint32_t cone_cull{1u};
+	uint32_t coverage_cull{1u};
+	float coverage_threshold{0.005f};
 	uint32_t is_ortho{0u};
+	float rt_w, rt_h;	
 	float znear, zfar;
 	float p00, p11;
 	float pyr_w, pyr_h;
@@ -115,11 +126,9 @@ struct RenderView
 	CullingData culling_data;
 
 	std::vector<Handle<RenderObject>> insert_queue;
-	std::vector<Handle<RenderObject>> instances;
+	std::vector<ObjectInstance> instances;
 
 	vulkan::BufferHandle culling_data_cbv;
-	vulkan::BufferHandle instance_argument_buffer;
-	vulkan::BufferHandle cluster_argument_buffer;
 
 	vulkan::BufferHandle buckets;
 	std::vector<uint32_t> cluster_bucket_offsets;
@@ -128,7 +137,12 @@ struct RenderView
 	vulkan::BufferHandle instance_buffer;
 	vulkan::BufferHandle cluster_instances;
 	vulkan::BufferHandle visibility;
+	vulkan::BufferHandle visibility_ocl;
 	vulkan::BufferHandle commands;
+
+	std::vector<vulkan::BufferHandle> visibility_sums;
+	std::array<uint32_t, 16> intermediate_sizes;
+	uint32_t instance_out_head = 0;
 };
 
 export using MaterialBucketFilter = std::function<RenderBucket(Handle64<Material>)>;
@@ -150,7 +164,7 @@ public:
 		({
 			.domain = vulkan::BufferDomain::Device,
 			.usage = vulkan::BufferUsage::StorageBuffer,
-			.size = sizeof(ObjectInstance) * initial_object_capacity,
+			.size = sizeof(ObjectData) * initial_object_capacity,
 			.debug_name = "gpuscene_object_buffer"
 		});
 
@@ -212,26 +226,10 @@ public:
 			.debug_name = "gpu_culling_data"
 		});
 
-		view.instance_argument_buffer = device.create_buffer
-		({
-			.domain = vulkan::BufferDomain::Device,
-			.usage = vulkan::BufferUsage::IndirectBuffer,
-			.size = sizeof(uvec4),
-			.debug_name = "gpu_argument_buffer"
-		});
-
-		view.cluster_argument_buffer = device.create_buffer
-		({
-			.domain = vulkan::BufferDomain::Device,
-			.usage = vulkan::BufferUsage::IndirectBuffer,
-			.size = sizeof(uint32_t) * pipe_count,
-			.debug_name = "gpu_cluster_argument_buffer"
-		});
-
 		view.buckets = device.create_buffer
 		({
-			.domain = vulkan::BufferDomain::DeviceMapped,
-			.usage = vulkan::BufferUsage::StorageBuffer,
+			.domain = vulkan::BufferDomain::Device,
+			.usage = vulkan::BufferUsage::IndirectBuffer,
 			.size = sizeof(uvec2) * pipe_count,
 			.debug_name = "gpu_bucket_buffer"
 		});
@@ -242,7 +240,7 @@ public:
 		({
 			.domain = vulkan::BufferDomain::Device,
 			.usage = vulkan::BufferUsage::StorageBuffer,
-			.size = sizeof(uint32_t) * 4096,
+			.size = sizeof(ObjectInstance) * 4096,
 			.debug_name = "renderview_instance_buffer"
 		});
 
@@ -258,8 +256,47 @@ public:
 		({
 			.domain = vulkan::BufferDomain::Device,
 			.usage = vulkan::BufferUsage::StorageBuffer,
-			.size = sizeof(uint32_t) * 65536,
+			.size = sizeof(uint8_t) * 65536,
 			.debug_name = "renderview_visibility_buffer"
+		});
+
+
+		view.visibility_sums.push_back
+		(device.create_buffer
+		({
+			.domain = vulkan::BufferDomain::Device,
+			.usage = vulkan::BufferUsage::StorageBuffer,
+			.size = sizeof(uint32_t) * 65536,
+			.debug_name = "renderview_visibility_indices"
+		}));
+		
+		uint32_t n = (65536 / 512) + 1;
+		while(n > 1)
+		{
+			view.visibility_sums.push_back
+			(device.create_buffer
+			({
+				.domain = vulkan::BufferDomain::Device,
+				.usage = vulkan::BufferUsage::StorageBuffer,
+				.size = sizeof(uint32_t) * n
+			}));
+			n = (n / 512) + 1;
+		}
+
+		view.visibility_sums.push_back
+		(device.create_buffer
+		({
+			.domain = vulkan::BufferDomain::Device,
+			.usage = vulkan::BufferUsage::StorageBuffer,
+			.size = sizeof(uint32_t)
+		}));
+
+		view.visibility_ocl = device.create_buffer
+		({
+			.domain = vulkan::BufferDomain::Device,
+			.usage = vulkan::BufferUsage::StorageBuffer,
+			.size = sizeof(uint32_t) * 65536,
+			.debug_name = "renderview_visibility_disocclusion_buffer"
 		});
 
 		view.commands = device.create_buffer
@@ -368,7 +405,7 @@ public:
 				processed = true;
 				auto tm = object.transform.as_matrix();
 				const uint32_t packed_bucket_lcount = (std::to_underlying(object.bucket) << 16) | mesh.lod_count;
-				ObjectInstance data
+				ObjectData data
 				{
 					tm,
 					mesh.sphere,
@@ -377,15 +414,15 @@ public:
 					mesh.lod0_offset,
 					packed_bucket_lcount
 				};
-				memcpy(streambuf->map<std::byte>() + streambuf_head, &data, sizeof(ObjectInstance));
+				memcpy(streambuf->map<std::byte>() + streambuf_head, &data, sizeof(ObjectData));
 				vk::BufferCopy region
 				{
 					.srcOffset = streambuf_head,
-					.dstOffset = (handle - 1) * sizeof(ObjectInstance),
-					.size = sizeof(ObjectInstance)
+					.dstOffset = (handle - 1) * sizeof(ObjectData),
+					.size = sizeof(ObjectData)
 				};
 				cmd.vk_object().copyBuffer(streambuf->handle, object_buffer->handle, 1, &region);
-				streambuf_head += sizeof(ObjectInstance);
+				streambuf_head += sizeof(ObjectData);
 			}
 			
 			cmd.pipeline_barrier
@@ -414,8 +451,8 @@ public:
 		cmd.memory_barrier
 		({
 			{
-			.src_stage = vk::PipelineStageFlagBits2::eTransfer | vk::PipelineStageFlagBits2::eDrawIndirect,
-			.src_access = vk::AccessFlagBits2::eTransferWrite | vk::AccessFlagBits2::eIndirectCommandRead,
+			.src_stage = vk::PipelineStageFlagBits2::eTransfer | vk::PipelineStageFlagBits2::eDrawIndirect | vk::PipelineStageFlagBits2::eComputeShader,
+			.src_access = vk::AccessFlagBits2::eTransferWrite | vk::AccessFlagBits2::eIndirectCommandRead | vk::AccessFlagBits2::eShaderWrite,
 			.dst_stage = vk::PipelineStageFlagBits2::eTransfer,
 			.dst_access = vk::AccessFlagBits2::eTransferWrite,
 			}
@@ -425,10 +462,13 @@ public:
 		{
 			refresh_view(view);
 			const uint32_t pipe_count = view.culling_data.is_shadow ? 4 : bucket_counter * 6;
-			cmd.vk_object().fillBuffer(view.instance_argument_buffer->handle, 0, sizeof(uvec4), 0u);
-			cmd.vk_object().fillBuffer(view.cluster_argument_buffer->handle, 0, sizeof(uint32_t) * pipe_count, 0u);
-				
-			auto size = static_cast<uint32_t>(view.instances.size()) * sizeof(uint32_t);
+			if(!view.culling_data.is_shadow)
+				cmd.vk_object().fillBuffer(view.visibility_ocl->handle, 0, sizeof(uvec4), 0u);
+			
+			cmd.vk_object().fillBuffer(view.visibility->handle, 0, 65536u, 0u);	
+			cmd.vk_object().fillBuffer(view.cluster_instances->handle, 0u, sizeof(ClusterInstance) * 65536u, 0u);
+
+			auto size = static_cast<uint32_t>(view.instances.size()) * sizeof(ObjectInstance);
 			if(!size)
 				continue;
 
@@ -442,24 +482,20 @@ public:
 			cmd.vk_object().copyBuffer(streambuf->handle, view.instance_buffer->handle, 1, &region);
 			streambuf_head += size;
 
+			region.srcOffset = streambuf_head;
+			region.size = pipe_count * sizeof(uvec2);
+
 			for(uint32_t i = 0; i < pipe_count; i++)
 			{
 				uvec2 bucket;
 				bucket.x = view.cluster_bucket_offsets[i];
-				bucket.y = view.cluster_bucket_sizes[i];
-				memcpy(view.buckets->map<uvec2>() + i, &bucket, sizeof(uvec2));
+				bucket.y = 0;
+				memcpy(streambuf->map<std::byte>() + streambuf_head, &bucket, sizeof(uvec2));
+				streambuf_head += sizeof(uvec2);
 			}
-		}
 
-		cmd.memory_barrier
-		({
-			{
-			.src_stage = vk::PipelineStageFlagBits2::eTransfer,
-			.src_access = vk::AccessFlagBits2::eTransferWrite,
-			.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
-			.dst_access = vk::AccessFlagBits2::eShaderRead
-			}
-		});
+			cmd.vk_object().copyBuffer(streambuf->handle, view.buckets->handle, 1, &region);
+		}
 
 		device.end_perf_event(cmd);
 		device.submit(cmd);
@@ -543,6 +579,8 @@ public:
 			gcd->frustum_cull = cd.frustum_cull;
 			gcd->occlusion_cull = cd.occlusion_cull;
 			gcd->cone_cull = cd.cone_cull;
+			gcd->coverage_cull = cd.coverage_cull;
+			gcd->coverage_threshold = cd.coverage_threshold;
 			gcd->is_ortho = cd.is_ortho;
 			gcd->forced_lod = cd.forced_lod;
 			gcd->lod_base = cd.lod_base;
@@ -582,6 +620,9 @@ public:
 
 			gcd->pyr_w = static_cast<float>(cd.dp_width);
 			gcd->pyr_h = static_cast<float>(cd.dp_height);
+			auto cres = cd.camera->get_res();
+			gcd->rt_w = static_cast<float>(cres.x);
+			gcd->rt_h = static_cast<float>(cres.y);		
 		}
 	}
 
@@ -590,13 +631,14 @@ public:
 		ZoneScoped;
 		auto cmd = device.request_command_buffer(vulkan::Queue::Graphics, "gpu_scene_cull");
 		device.start_perf_event("gpu_scene_instance_cull", cmd);
+		
 		cmd.memory_barrier
 		({
 			{
-			.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
-			.src_access = vk::AccessFlagBits2::eShaderWrite,
+			.src_stage = vk::PipelineStageFlagBits2::eTransfer,
+			.src_access = vk::AccessFlagBits2::eTransferWrite,
 			.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
-			.dst_access = vk::AccessFlagBits2::eShaderWrite
+			.dst_access = vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eShaderWrite
 			}
 		});
 
@@ -613,58 +655,35 @@ public:
 			({
 				.uniform_buffers =
 				{
-					{5, view.culling_data_cbv.get()}
+					{4, view.culling_data_cbv.get()}
 				},
 				.storage_buffers =
 				{
 					{0, object_buffer.get()},
 					{1, view.instance_buffer.get()},
 					{2, view.cluster_instances.get()},
-					{3, view.instance_argument_buffer.get()},
-					{4, resource_manager.get_mesh_buffers().lod}
+					{3, resource_manager.get_mesh_buffers().lod}
 				}
 			});
 
 			cmd.push_constant(&size, sizeof(uint32_t));
 			cmd.dispatch((size + 31u) / 32u, 1u, 1u);
 		}
-
+		
 		cmd.memory_barrier
 		({
 			{
 			.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
 			.src_access = vk::AccessFlagBits2::eShaderWrite,
 			.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
-			.dst_access = vk::AccessFlagBits2::eShaderWrite | vk::AccessFlagBits2::eShaderRead
-			}
-		});
-
-		cmd.bind_pipeline({"generate_indirect_arguments.comp"});
-
-		for(auto& view : views)
-		{
-			auto& cd = view.culling_data;
-			cmd.push_descriptor_set
-			({
-				.storage_buffers = {{0, view.instance_argument_buffer.get()}}
-			});
-			cmd.dispatch(1u, 1u, 1u);
-		}
-
-		cmd.memory_barrier
-		({
-			{
-			.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
-			.src_access = vk::AccessFlagBits2::eShaderWrite,
-			.dst_stage = vk::PipelineStageFlagBits2::eComputeShader | vk::PipelineStageFlagBits2::eDrawIndirect,
-			.dst_access = vk::AccessFlagBits2::eShaderWrite | vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eIndirectCommandRead
+			.dst_access = vk::AccessFlagBits2::eShaderRead
 			}
 		});
 		
 		device.end_perf_event(cmd);
 
 		device.start_perf_event("gpu_scene_cluster_cull", cmd);
-		cmd.bind_pipeline({is_visbuffer ? "cluster_cull_visbuffer.comp" : "cluster_cull.comp"});
+		cmd.bind_pipeline({"cluster_cull.comp"});
 
 		for(auto& view : views)
 		{
@@ -712,18 +731,16 @@ public:
 			({
 				.uniform_buffers = 
 				{
-					{8, view.culling_data_cbv.get()}
+					{6, view.culling_data_cbv.get()}
 				},
 				.storage_buffers =
 				{
 					{0, object_buffer.get()},
 					{1, view.cluster_instances.get()},
-					{2, view.commands.get()},
-					{3, view.instance_argument_buffer.get()}, 
-					{4, view.cluster_argument_buffer.get()},
-					{5, view.buckets.get()},	
-					{6, view.visibility.get()},
-					{7, resource_manager.get_mesh_buffers().cluster},
+					{2, view.visibility.get()},
+					{3, view.visibility_ocl.get()},
+					{4, view.buckets.get()},
+					{5, resource_manager.get_mesh_buffers().cluster},
 				}
 			});
 
@@ -734,7 +751,7 @@ public:
 					.sampled_images =
 					{
 						{
-						9,
+						7,
 						cd.depth_pyramid->get_default_view(),
 						dp_sampler,
 						vk::ImageLayout::eGeneral
@@ -743,7 +760,8 @@ public:
 				});
 			}
 
-			cmd.dispatch_indirect(view.instance_argument_buffer.get(), 0);
+			cmd.push_constant(&size, sizeof(uint32_t));
+			cmd.dispatch((size + 31u) / 32u, 1u, 1u);
 
 			if(cd.zbuf)
 			{
@@ -762,7 +780,145 @@ public:
 				});
 			}
 		}
+		device.end_perf_event(cmd);
+		
+		cmd.memory_barrier
+		({
+			{
+			.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
+			.src_access = vk::AccessFlagBits2::eShaderWrite,
+			.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
+			.dst_access = vk::AccessFlagBits2::eShaderRead
+			}
+		});
 
+		device.start_perf_event("gpu_scene_prefix_scan", cmd);
+
+		for(auto& view : views)
+		{
+			auto& cd = view.culling_data;
+			auto size = view.cluster_bucket_offsets.back() + view.cluster_bucket_sizes.back();
+			if(!size)
+				continue;
+
+			cmd.bind_pipeline({"prefix_scan_index_u8.comp"});
+			
+			cmd.push_descriptor_set
+			({
+				.storage_buffers =
+				{
+					{0, view.visibility.get()},
+					{1, view.visibility_sums[0].get()},
+					{2, view.visibility_sums[1].get()}
+				}
+			});
+
+			view.intermediate_sizes[0] = size;
+			cmd.push_constant(&size, sizeof(uint32_t));
+			size = (size / 512u) + 1;
+			cmd.dispatch(size, 1u, 1u);
+		}
+
+		cmd.memory_barrier
+		({
+			{
+			.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
+			.src_access = vk::AccessFlagBits2::eShaderWrite,
+			.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
+			.dst_access = vk::AccessFlagBits2::eShaderRead
+			}
+		});
+
+		for(auto& view : views)
+		{
+			auto& cd = view.culling_data;
+			uint32_t size = (view.intermediate_sizes[0] / 512u) + 1u;
+
+			for(uint32_t i = 1; i < view.visibility_sums.size() - 1; i++)
+			{
+				cmd.bind_pipeline({"prefix_scan_index.comp"});
+
+				cmd.push_descriptor_set
+				({
+					.storage_buffers =
+					{
+						{0, view.visibility_sums[i].get()},
+						{1, view.visibility_sums[i].get()},
+						{2, view.visibility_sums[i + 1].get()}
+					}
+				});
+
+				view.intermediate_sizes[i] = size;
+				cmd.push_constant(&size, sizeof(uint32_t));
+				size = (size / 512u) + 1;
+				cmd.dispatch(size, 1u, 1u);
+
+				cmd.memory_barrier
+				({
+					{
+		       			.src_stage = vk::PipelineStageFlagBits2::eComputeShader,
+					.src_access = vk::AccessFlagBits2::eShaderWrite,
+					.dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
+					.dst_access = vk::AccessFlagBits2::eShaderRead
+					}
+				});
+			
+				cmd.bind_pipeline({"prefix_scan_add_partial.comp"});
+				
+				cmd.push_descriptor_set
+				({
+	 				.storage_buffers =
+	       				{
+						{0, view.visibility_sums[i].get()},
+						{1, view.visibility_sums[i - 1].get()}
+					}
+				});
+
+				cmd.push_constant(&view.intermediate_sizes[i - 1], sizeof(uint32_t));
+				cmd.dispatch(view.intermediate_sizes[i], 1u, 1u);
+
+				cmd.memory_barrier
+                                ({
+                                        {
+                                        .src_stage = vk::PipelineStageFlagBits2::eComputeShader,
+                                        .src_access = vk::AccessFlagBits2::eShaderWrite,
+                                        .dst_stage = vk::PipelineStageFlagBits2::eComputeShader,
+                                        .dst_access = vk::AccessFlagBits2::eShaderRead
+                                        }
+                                });	
+			}			
+		}
+
+		device.end_perf_event(cmd);
+
+		device.start_perf_event("gpu_scene_generate_drawcalls", cmd);
+
+		for(auto& view : views)
+		{
+			auto size = view.cluster_bucket_offsets.back() + view.cluster_bucket_sizes.back();
+			if(!size)
+				continue;
+
+			cmd.bind_pipeline({is_visbuffer ? "generate_drawcalls_visbuffer.comp" : "generate_drawcalls.comp"});
+
+			cmd.push_descriptor_set
+			({
+				.storage_buffers =
+				{
+					{0, view.cluster_instances.get()},
+					{1, view.commands.get()},
+					{2, view.visibility_sums[0].get()},
+					{3, view.visibility.get()},
+					{4, view.buckets.get()},
+					{5, object_buffer.get()},
+					{6, resource_manager.get_mesh_buffers().cluster}
+				}
+			});
+
+			cmd.push_constant(&size, sizeof(uint32_t));
+			cmd.dispatch((size / 256u) + 1u, 1u, 1u);
+		}
+				
 		cmd.memory_barrier
 		({
 			{
@@ -782,7 +938,7 @@ public:
 		ZoneScoped;
 		device.start_perf_event("gpu_scene_buildHZB", cmd);
 		cmd.bind_pipeline({"depthreduce.comp"});
-
+		
 		for(auto& view : views)
 		{
 			auto& cd = view.culling_data;
@@ -850,7 +1006,7 @@ public:
 				}
 			});
 		}
-
+		
 		cmd.bind_pipeline({"depth_downsample_singlepass.comp"});
 
 		for(auto& view : views)
@@ -955,8 +1111,8 @@ public:
 		(
 			view.commands.get(),
 			view.cluster_bucket_offsets[bucket_offset] * sizeof(vk::DrawIndexedIndirectCommand),
-			view.cluster_argument_buffer.get(),
-			bucket_offset * sizeof(uint32_t),
+			view.buckets.get(),
+			bucket_offset * sizeof(uvec2) + sizeof(uint32_t),
 			view.cluster_bucket_sizes[bucket_offset],
 			sizeof(vk::DrawIndexedIndirectCommand)
 		);
@@ -972,8 +1128,13 @@ public:
 			ImGui::PushID(ctr++);
 
 			ImGui::Checkbox("Frustum culling", &view.culling_data.frustum_cull);
-			ImGui::Checkbox("Occlusion culling", &view.culling_data.occlusion_cull);
-			ImGui::Checkbox("Cone culling", &view.culling_data.cone_cull);
+			if(!view.culling_data.is_shadow)
+			{
+				ImGui::Checkbox("Occlusion culling", &view.culling_data.occlusion_cull);
+				ImGui::Checkbox("Cone culling", &view.culling_data.cone_cull);
+			}
+			ImGui::Checkbox("Screen coverage culling", &view.culling_data.coverage_cull);
+			ImGui::DragFloat("Coverage threshold", &view.culling_data.coverage_threshold, 0.001f, 0.0f, 1.0f);
 			ImGui::Checkbox("Freeze culling", &view.culling_data.freeze_culling);
 
 			ImGui::SliderInt("LOD override", &view.culling_data.forced_lod, -1, 4);
@@ -1003,8 +1164,10 @@ private:
 			assert(mtl_bucket_offset.contains(tmp));
 			auto bucket_offset = (view.culling_data.is_shadow ? 0u : mtl_bucket_offset[tmp]) + std::to_underlying(object.bucket);
 			
-			view.instances.emplace_back(handle - 1);
-			view.cluster_bucket_sizes[bucket_offset] += resource_manager.get_mesh(object.mesh).lods[0].cluster_count;
+			view.instances.emplace_back(handle, 0);
+			
+			auto ccount = resource_manager.get_mesh(object.mesh).lods[0].cluster_count;
+			view.cluster_bucket_sizes[bucket_offset] += ccount;
 		}
 
 		const uint32_t pipe_count = view.culling_data.is_shadow ? 4 : bucket_counter * 6;
@@ -1016,6 +1179,28 @@ private:
 		}	
 
 		view.insert_queue.clear();
+
+		view.instance_out_head = 0;
+		std::sort(view.instances.begin(), view.instances.end(), [this, &view](const ObjectInstance& lhs, const ObjectInstance& rhs)
+		{
+			auto& l_object = get_object(lhs.in_object);
+			auto& r_object = get_object(rhs.in_object);
+			auto lhs_bucket = (view.culling_data.is_shadow ? 0u : mtl_bucket_offset[template_from_material(l_object.material)]) + std::to_underlying(l_object.bucket);
+			auto rhs_bucket = (view.culling_data.is_shadow ? 0u : mtl_bucket_offset[template_from_material(r_object.material)]) + std::to_underlying(r_object.bucket);
+
+			if(lhs_bucket < rhs_bucket) { return true; }
+			else if(lhs_bucket == rhs_bucket) { return lhs.in_object < rhs.in_object; }
+			return false;
+		});	
+
+		for(auto& inst : view.instances)
+		{
+			auto& object = get_object(inst.in_object);
+			auto ccount = resource_manager.get_mesh(object.mesh).lods[0].cluster_count;
+			inst.out_offset = view.instance_out_head;
+			view.instance_out_head += ccount;
+		}
+
 	}
 
 	vulkan::Device& device;
