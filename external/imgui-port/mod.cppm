@@ -50,6 +50,7 @@ export namespace ImGui
 	using ImGui::TreeNodeEx;
 	using ImGui::TreePop;
 	using ImGui::CollapsingHeader;
+	using ImGui::SetTooltip;
 
 	using ImGui::GetForegroundDrawList;
 	using ImGui::GetBackgroundDrawList;
@@ -84,6 +85,7 @@ export namespace ImGui
 	using ImGui::ColorEdit4;
 	using ImGui::Selectable;
 	using ImGui::InputText;
+	using ImGui::InputTextWithHint;
 	using ImGui::Image;
 	using ImGui::Checkbox;
 	using ImGui::Combo;
@@ -91,6 +93,15 @@ export namespace ImGui
 	using ImGui::SeparatorText;
 	using ImGui::Text;
 	using ImGui::TextColored;
+
+	using ImGui::BeginDragDropSource;
+	using ImGui::SetDragDropPayload;
+	using ImGui::EndDragDropSource;
+	using ImGui::BeginDragDropTarget;
+	using ImGui::AcceptDragDropPayload;
+	using ImGui::EndDragDropTarget;
+
+	using ImGui::SetMouseCursor;
 }
 
 export namespace ImGuizmo
@@ -184,3 +195,10 @@ export using ::ImGuiConfigFlags_IsSRGB;
 export using ::ImGuiConfigFlags_DockingEnable;
 export using ::ImGuiMouseButton_COUNT;
 export using ::ImGuiCond_FirstUseEver;
+export using ::ImGuiDragDropFlags;
+export using ::ImGuiDragDropFlags_None;
+export using ::ImGuiDragDropFlags_AcceptBeforeDelivery;
+export using ::ImGuiDragDropFlags_AcceptNoPreviewTooltip;
+export using ::ImGuiPayload;
+export using ::ImGuiMouseCursor;
+export using ::ImGuiMouseCursor_NotAllowed;
