@@ -228,6 +228,9 @@ public:
 			if(cur_layer & layer)
 				callback(dx, dy);
 		}
+
+		ms_deltaX = dx;
+		ms_deltaY = dy;
 	}
 
 	void set_input_layer(InputLayer layer)
@@ -301,6 +304,20 @@ public:
 		return std::make_pair(dx, dy);
 	}
 
+	[[nodiscard]] std::pair<double, double> get_scroll_delta(InputLayer layer = InputLayers::Engine) noexcept
+	{
+		if(!(layer & cur_layer))
+			return std::make_pair(0.0, 0.0);
+
+		const double dx = ms_deltaX;
+		const double dy = ms_deltaY;
+
+		ms_deltaX = 0.0;
+		ms_deltaY = 0.0;
+
+		return std::make_pair(dx, dy);
+	}
+
 	[[nodiscard]] std::pair<uint32_t, uint32_t> get_extent() const noexcept
 	{
 		return std::make_pair(w, h);
@@ -311,6 +328,8 @@ private:
 	double m_lastY = 0.0;
 	double m_deltaX = 0.0;
 	double m_deltaY = 0.0;
+	double ms_deltaX = 0.0;
+	double ms_deltaY = 0.0;
 	std::vector<KeyState> key_state;
 
 	std::vector<EventListener<KeyEventCallback>> key_event_listeners;
