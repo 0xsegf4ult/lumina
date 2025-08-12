@@ -367,9 +367,12 @@ Handle<SkinnedMesh> ResourceManager::load_skinned_mesh(const vfs::path& path)
 	std::unique_lock<std::shared_mutex> m_lock{data.sk_mesh_meta_lock};
 	if(data.sk_meshes.size() <= data.next_sk_mesh)
 		data.sk_meshes.insert(data.sk_meshes.end(), (data.next_sk_mesh + 1) - data.sk_meshes.size(), SkinnedMesh{});
-/*
+
+
 	int32_t vertex_offset = data.gpu_sk_vbuf_head;
 	uint32_t index_offset = data.gpu_ibuf_head;
+	uint32_t lod0_offset = data.gpu_lodbuf_head;
+	uint32_t cluster_offset = data.gpu_clusterbuf_head;
 
 	const auto* mesh_data = vfs::map<std::byte>(*mesh_file, vfs::access_readonly);
 	const auto* header = reinterpret_cast<const MeshFormat::Header*>(mesh_data);
@@ -380,23 +383,55 @@ Handle<SkinnedMesh> ResourceManager::load_skinned_mesh(const vfs::path& path)
 		vfs::close(*mesh_file);
 		return Handle<SkinnedMesh>{0};
 	}
-	
-	const auto* lod_table = reinterpret_cast<const MeshFormat::MeshLOD*>(mesh_data + header->lod_offset);
-
-	auto vcount = lod_table[0].vertex_count;
-	auto icount = lod_table[0].index_count;
 
 	SkinnedMesh l_mesh
 	{
 		.name = path.filename().string(),
-		.bounds = {header->sphere, header->aabb},
-		.ssbo_vertex_offset = vertex_offset + static_cast<int32_t>(lod_table[0].vertex_offset),
-		.vertex_count = vcount,
-		.ib_index_offset = index_offset + lod_table[0].index_offset,
-		.index_count = icount
+		.sphere = header->sphere,
+		.lod_count = header->num_lods,
+		.lod0_offset = lod0_offset
 	};
 
-	if(data.gpu_sk_vbuf_head + lod_table[0].vertex_count > data.gpu_sk_vertcap)
+	uint32_t vcount = 0;
+	uint32_t icount = 0;
+	uint32_t ccount = 0;
+
+	const auto* lod_table = reinterpret_cast<const MeshFormat::MeshLOD*>(mesh_data + header->lod_offset);
+	const auto* cluster_table = reinterpret_cast<const MeshFormat::Cluster*>(mesh_data + header->cluster_offset);
+	for(uint32_t i = 0; i < l_mesh.lod_count; i++)
+	{
+		l_mesh.lods[i] =
+		{
+			cluster_offset + lod_table[i].cluster_offset,
+			lod_table[i].cluster_count
+		};
+		ccount += lod_table[i].cluster_count;
+	}
+	
+	l_mesh.clusters.resize(ccount);
+	for(uint32_t l = 0; l < l_mesh.lod_count; l++)
+	{
+		for(uint32_t i = 0; i < lod_table[l].cluster_count; i++)
+		{
+			uint32_t coff = i + lod_table[l].cluster_offset;
+			l_mesh.clusters[coff] =
+			{
+				vertex_offset + cluster_table[coff].vertex_offset,
+				cluster_table[coff].vertex_count,
+				index_offset + cluster_table[coff].index_offset,
+				cluster_table[coff].index_count,
+				cluster_table[coff].sphere,
+				cluster_table[coff].cone
+			};
+
+			l_mesh.clusters[coff].sphere.w *= 1.1f;
+
+			vcount += cluster_table[coff].vertex_count;
+			icount += cluster_table[coff].index_count;
+		}
+	}
+
+	if(data.gpu_sk_vbuf_head + vcount > data.gpu_sk_vertcap)
 	{
 		log::error("resource_manager: skinned vertex buffer overflowed");
 		vfs::close(*mesh_file);
@@ -411,8 +446,24 @@ Handle<SkinnedMesh> ResourceManager::load_skinned_mesh(const vfs::path& path)
 		return Handle<SkinnedMesh>{0};
 	}
 	data.gpu_ibuf_head += icount;
-	
-	data.sk_meshes[data.next_sk_mesh] = l_mesh;*/
+
+	if(data.gpu_lodbuf_head + l_mesh.lod_count > data.gpu_lodcap)
+	{
+		log::error("resource_manager: LOD buffer overflowed");
+		vfs::close(*mesh_file);
+		return Handle<SkinnedMesh>{0};
+	}
+	data.gpu_lodbuf_head += l_mesh.lod_count;
+
+	if(data.gpu_clusterbuf_head + ccount > data.gpu_clustercap)
+	{
+		log::error("resource_manager: cluster buffer overflowed");
+		vfs::close(*mesh_file);
+		return Handle<SkinnedMesh>{0};
+	}
+	data.gpu_clusterbuf_head += ccount;
+
+	data.sk_meshes[data.next_sk_mesh] = l_mesh;
 	Handle<SkinnedMesh> mh{data.next_sk_mesh++};
 	loaded_skinned_meshes[phash] = mh;
 	m_lock.unlock();
@@ -432,20 +483,32 @@ Handle<Mesh> ResourceManager::skinned_mesh_instantiate(Handle<SkinnedMesh> skm)
 	std::unique_lock<std::shared_mutex> sk_lock{data.sk_mesh_meta_lock};
 
 	SkinnedMesh& sk_mesh = data.sk_meshes[skm];
-	
-/*	if(data.gpu_vbuf_head + sk_mesh.vertex_count > data.gpu_vertcap)
+
+	uint32_t vcount = 0;
+	for(const auto& cluster : sk_mesh.clusters)
+		vcount += cluster.vertex_count;
+
+	if(data.gpu_vbuf_head + vcount > data.gpu_vertcap)
 	{
 		log::error("resource_manager: vertex buffer overflowed");
 		return Handle<Mesh>{0};
 	}
-*/
+
+	auto sk_voff = data.gpu_vbuf_head;
+	data.gpu_vbuf_head += vcount;
+
+	auto sk_cloff = data.gpu_clusterbuf_head;
+	
+
+	auto sk_lodoff = data.gpu_lodbuf_head;
+
 	if(data.meshes.size() <= data.next_mesh)
 		data.meshes.insert(data.meshes.end(), (data.next_mesh + 1) - data.meshes.size(), Mesh{});
-/*
+	
 	data.meshes[data.next_mesh] = Mesh
 	{
 		sk_mesh.name,
-		sk_mesh.bounds,
+		sk_mesh.sphere,
 		{
 			Mesh::LODLevel
 			{
@@ -462,8 +525,6 @@ Handle<Mesh> ResourceManager::skinned_mesh_instantiate(Handle<SkinnedMesh> skm)
 	};
 	
 
-	data.gpu_vbuf_head += sk_mesh.vertex_count;
-*/
 	auto mh = Handle<Mesh>{data.next_mesh++};
 	data.sk_instance_queue.push_back({mh, data.gpu_lodbuf_head++});
 	return mh;
