@@ -702,7 +702,7 @@ public:
 						if(entry.t < cur_ray_t)
 						{
 							out.push_back({entry.id.as_body(), entry.t});
-							cur_ray_t = entry.t;
+						//	cur_ray_t = entry.t;
 						}
 					}
 				}
