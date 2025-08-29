@@ -279,7 +279,7 @@ public:
 				.depth_mode = vulkan::DepthMode::Disabled,
 				.blend_modes = {vulkan::BlendMode::AlphaBlend},
 				.att_formats = {{vk::Format::eB8G8R8A8Srgb}},
-				.shaders = {"imgui.vert", "imgui.frag"}
+				.shader = "imgui"
 			});
 
 			const mat4 proj = mat4::make_ortho(0.0f, static_cast<float>(fw), static_cast<float>(fh), 0.0f, 0.0f, 1.0f);

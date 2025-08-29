@@ -53,16 +53,24 @@ constexpr vulkan::VertexDescription static_mesh_pos_stream
         {{vk::Format::eR32G32B32Sfloat}}
 }};
 
+constexpr vulkan::VertexDescription static_mesh_vertex_uv_stream
+{{
+	{{vk::Format::eR32G32B32Sfloat}},
+	{{vk::Format::eR32G32Sfloat}}
+}};
+
 constexpr vulkan::VertexDescription static_mesh_vertex_description
 {{
         {{vk::Format::eR32G32B32Sfloat}},
-        {{vk::Format::eR32Sfloat, vk::Format::eR32G32Sfloat, vk::Format::eR32Uint}}
+	{{vk::Format::eR32G32Sfloat}},
+        {{vk::Format::eR32Uint, vk::Format::eR32Sfloat}}
 }};
 
 struct MeshStorageBuffers
 {
 	vulkan::Buffer* vertex_pos;
-	vulkan::Buffer* vertex_attr;
+	vulkan::Buffer* vertex_uv;
+	vulkan::Buffer* vertex_norms;
 	vulkan::Buffer* index;
 	vulkan::Buffer* skinned_vertex;
 	vulkan::Buffer* lod;
@@ -146,7 +154,8 @@ struct MeshStorage
 	uint32_t next_sk_mesh = 1;
 	
 	vulkan::BufferHandle gpu_vertex_pos_buffer;
-	vulkan::BufferHandle gpu_vertex_attr_buffer;
+	vulkan::BufferHandle gpu_vertex_uv_buffer;
+	vulkan::BufferHandle gpu_vertex_norms_buffer;
 	vulkan::BufferHandle gpu_index_buffer;
 	vulkan::BufferHandle gpu_skinned_vertices;
 	vulkan::BufferHandle gpu_meshlod_buffer;
@@ -165,7 +174,8 @@ struct MeshStorage
 	constexpr static uint32_t gpu_clustercap = 65536u * 2;
 
 	std::vector<vk::BufferCopy> transfer_cmd_vpos;
-	std::vector<vk::BufferCopy> transfer_cmd_vattr;
+	std::vector<vk::BufferCopy> transfer_cmd_vuv;
+	std::vector<vk::BufferCopy> transfer_cmd_vnorms;
 	std::vector<vk::BufferCopy> transfer_cmd_idx;
 	std::vector<vk::BufferCopy> transfer_cmd_lod;
 	std::vector<vk::BufferCopy> transfer_cmd_skv;

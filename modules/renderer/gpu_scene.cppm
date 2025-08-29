@@ -138,6 +138,7 @@ struct RenderView
 	vulkan::BufferHandle cluster_instances;
 	vulkan::BufferHandle visibility;
 	vulkan::BufferHandle visibility_ocl;
+	vulkan::BufferHandle visibility_ocl_dispatch;
 	vulkan::BufferHandle commands;
 
 	std::vector<vulkan::BufferHandle> visibility_sums;
@@ -291,6 +292,9 @@ public:
 			.size = sizeof(uint32_t)
 		}));
 
+		if(view.culling_data.occlusion_cull)
+		{
+
 		view.visibility_ocl = device.create_buffer
 		({
 			.domain = vulkan::BufferDomain::Device,
@@ -298,6 +302,16 @@ public:
 			.size = sizeof(uint32_t) * 65536,
 			.debug_name = "renderview_visibility_disocclusion_buffer"
 		});
+
+		view.visibility_ocl_dispatch = device.create_buffer
+		({
+			.domain = vulkan::BufferDomain::Device,
+			.usage = vulkan::BufferUsage::IndirectBuffer,
+			.size = sizeof(uvec4),
+			.debug_name = "renderview_visibility_disocclusion_dispatch"
+		});
+
+		}
 
 		view.commands = device.create_buffer
 		({
@@ -462,8 +476,8 @@ public:
 		{
 			refresh_view(view);
 			const uint32_t pipe_count = view.culling_data.is_shadow ? 4 : bucket_counter * 6;
-			if(!view.culling_data.is_shadow)
-				cmd.vk_object().fillBuffer(view.visibility_ocl->handle, 0, sizeof(uvec4), 0u);
+			if(view.culling_data.occlusion_cull)
+				cmd.vk_object().fillBuffer(view.visibility_ocl_dispatch->handle, 0, sizeof(uvec4), 0u);
 			
 			cmd.vk_object().fillBuffer(view.visibility->handle, 0, 65536u, 0u);	
 			cmd.vk_object().fillBuffer(view.cluster_instances->handle, 0u, sizeof(ClusterInstance) * 65536u, 0u);
@@ -642,7 +656,7 @@ public:
 			}
 		});
 
-		cmd.bind_pipeline({"instance_cull.comp"});
+		cmd.bind_pipeline({"instance_cull"});
 	
 		for(auto& view : views)
 		{
@@ -683,7 +697,7 @@ public:
 		device.end_perf_event(cmd);
 
 		device.start_perf_event("gpu_scene_cluster_cull", cmd);
-		cmd.bind_pipeline({"cluster_cull.comp"});
+		cmd.bind_pipeline({"cluster_cull"});
 
 		for(auto& view : views)
 		{
@@ -731,16 +745,15 @@ public:
 			({
 				.uniform_buffers = 
 				{
-					{6, view.culling_data_cbv.get()}
+					{5, view.culling_data_cbv.get()}
 				},
 				.storage_buffers =
 				{
 					{0, object_buffer.get()},
 					{1, view.cluster_instances.get()},
 					{2, view.visibility.get()},
-					{3, view.visibility_ocl.get()},
-					{4, view.buckets.get()},
-					{5, resource_manager.get_mesh_buffers().cluster},
+					{3, view.buckets.get()},
+					{4, resource_manager.get_mesh_buffers().cluster},
 				}
 			});
 
@@ -751,11 +764,16 @@ public:
 					.sampled_images =
 					{
 						{
-						7,
+						8,
 						cd.depth_pyramid->get_default_view(),
 						dp_sampler,
 						vk::ImageLayout::eGeneral
 						}
+					},
+					.storage_buffers =
+					{
+						{6, view.visibility_ocl_dispatch.get()},
+						{7, view.visibility_ocl.get()}
 					}
 				});
 			}
@@ -801,7 +819,7 @@ public:
 			if(!size)
 				continue;
 
-			cmd.bind_pipeline({"prefix_scan_index_u8.comp"});
+			cmd.bind_pipeline({"prefix_scan_index_u8"});
 			
 			cmd.push_descriptor_set
 			({
@@ -836,7 +854,7 @@ public:
 
 			for(uint32_t i = 1; i < view.visibility_sums.size() - 1; i++)
 			{
-				cmd.bind_pipeline({"prefix_scan_index.comp"});
+				cmd.bind_pipeline({"prefix_scan_index"});
 
 				cmd.push_descriptor_set
 				({
@@ -863,7 +881,7 @@ public:
 					}
 				});
 			
-				cmd.bind_pipeline({"prefix_scan_add_partial.comp"});
+				cmd.bind_pipeline({"prefix_scan_add_partial"});
 				
 				cmd.push_descriptor_set
 				({
@@ -899,7 +917,7 @@ public:
 			if(!size)
 				continue;
 
-			cmd.bind_pipeline({is_visbuffer ? "generate_drawcalls_visbuffer.comp" : "generate_drawcalls.comp"});
+			cmd.bind_pipeline({is_visbuffer ? "generate_drawcalls_visbuffer" : "generate_drawcalls"});
 
 			cmd.push_descriptor_set
 			({
@@ -937,7 +955,7 @@ public:
 	{
 		ZoneScoped;
 		device.start_perf_event("gpu_scene_buildHZB", cmd);
-		cmd.bind_pipeline({"depthreduce.comp"});
+		cmd.bind_pipeline({"depthreduce"});
 		
 		for(auto& view : views)
 		{
@@ -1007,7 +1025,7 @@ public:
 			});
 		}
 		
-		cmd.bind_pipeline({"depth_downsample_singlepass.comp"});
+		cmd.bind_pipeline({"depth_downsample_singlepass"});
 
 		for(auto& view : views)
 		{

@@ -9,6 +9,7 @@ set(CMAKE_CXX_MODULE_STD 1)
 project(lumina VERSION 0.1 LANGUAGES CXX)
 
 option(LUMINA_TRACY_INTEGRATION "Enable tracy profiler" OFF)
+option(LUMINA_BUILD_TOOLS "Build tools" ON)
 
 # ninja is required for cpp modules
 if(NOT ${CMAKE_GENERATOR} MATCHES "Ninja")
@@ -39,3 +40,7 @@ else()
 endif()
 
 add_subdirectory("modules")
+
+if(LUMINA_BUILD_TOOLS)
+	add_subdirectory("tools")
+endif()

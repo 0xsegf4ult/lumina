@@ -5,6 +5,7 @@ import :shader;
 import vulkan_hpp;
 import std;
 import lumina.core;
+import lumina.vfs;
 import xxhash;
 
 using std::uint32_t, std::size_t;
@@ -13,9 +14,8 @@ namespace lumina::vulkan
 {
 
 export const size_t max_vertex_attributes = 8;
-export const size_t max_vertex_bindings = 2;
+export const size_t max_vertex_bindings = 3;
 export const size_t max_color_attachments = 8;
-export const size_t max_shader_stages = 5;
 
 export struct PrimitiveState
 {
@@ -213,7 +213,7 @@ export struct GraphicsPSOKey
 		vk::Format stencil = vk::Format::eUndefined;
 	} att_formats;
 	uint32_t view_mask = 0u;
-	std::array<std::filesystem::path, max_shader_stages> shaders{};
+	vfs::path shader;
 
 	bool operator==(const GraphicsPSOKey& other) const noexcept
 	{
@@ -229,17 +229,13 @@ export struct GraphicsPSOKey
 		if(std::memcmp(&att_formats, &other.att_formats, sizeof(AttachmentFormats)) != 0)
 			return false;
 
-		for(uint32_t i = 0; i < max_shader_stages; i++)
-			if(shaders[i] != other.shaders[i])
-				return false;
-
-		return depth_mode == other.depth_mode && multisample_mode == other.multisample_mode && view_mask == other.view_mask;
+		return shader == other.shader && depth_mode == other.depth_mode && multisample_mode == other.multisample_mode && view_mask == other.view_mask;
 	}
 };
 
 export struct ComputePSOKey
 {
-	std::filesystem::path shader{};
+	vfs::path shader{};
 
 	bool operator==(const ComputePSOKey& other) const noexcept
 	{
@@ -268,68 +264,28 @@ export struct PipelineLayout
 	std::array<vk::DescriptorSetLayout, max_descriptor_sets> ds_layouts;
 };
 
-export PipelineLayoutKey build_pipe_layout(std::span<Shader*> shaders)
-{
-	PipelineLayoutKey layout;
-
-	for(size_t i = 0; i < 4; i++)
-	{
-		for(auto* shader : shaders)
-		{
-			if(!shader || shader->dsl_keys[i].is_empty())
-				continue;
-			
-			auto& src_dsl = shader->dsl_keys[i];
-			auto& dst_dsl = layout.dsl_keys[i];
-
-			dst_dsl.sampled_image_bindings |= src_dsl.sampled_image_bindings;
-			dst_dsl.storage_image_bindings |= src_dsl.storage_image_bindings;
-			dst_dsl.separate_image_bindings |= src_dsl.separate_image_bindings;
-			dst_dsl.sampler_bindings |= src_dsl.sampler_bindings;
-			dst_dsl.uniform_buffer_bindings |= src_dsl.uniform_buffer_bindings;
-			dst_dsl.storage_buffer_bindings |= src_dsl.storage_buffer_bindings;
-			dst_dsl.vs_bindings |= src_dsl.vs_bindings;
-			dst_dsl.fs_bindings |= src_dsl.fs_bindings;
-			dst_dsl.cs_bindings |= src_dsl.cs_bindings;
-			dst_dsl.variable_bindings |= src_dsl.variable_bindings;
-
-			for(auto a = 0u; a < 16u; a++)
-				dst_dsl.binding_arraysize[a] = std::max(dst_dsl.binding_arraysize[a], src_dsl.binding_arraysize[a]);
-		}		
-	}
-
-	layout.pconst = shaders[0]->pconst;
-	for(auto* shader : shaders)
-	{
-		if(!shader)
-			break;
-
-		layout.pconst.stageFlags |= shader->pconst.stageFlags;
-		layout.pconst.size = std::max(layout.pconst.size, shader->pconst.size);
-	}
-
-	return layout;
-}
-
 export struct Pipeline
 {
 	vk::Pipeline pipeline;
 	PipelineLayoutKey layout_key;	
 	PipelineLayout layout;
-	std::array<Handle<Shader>, max_shader_stages> shaders{};
+	Handle<Shader> shader;
 };
 
-export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk::PipelineLayout layout, std::span<Shader*> shaders, const GraphicsPSOKey& key)
+export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk::PipelineLayout layout, Shader& shader, const GraphicsPSOKey& key)
 {
 	std::array<vk::PipelineShaderStageCreateInfo, max_shader_stages> stages;
+	std::array<vk::ShaderModuleCreateInfo, max_shader_stages> sm_info;
 	uint32_t num_stages = 0;
-	for(auto& shader: shaders)
+	for(auto& stage: shader.stages)
 	{
-		if(!shader || shader->pipeline_stage == vk::ShaderStageFlagBits{0})
+		if(stage.spirv.empty())
 			break;
-
-		stages[num_stages].stage = shader->pipeline_stage;
-		stages[num_stages].module = shader->shader_module;
+			
+		sm_info[num_stages].codeSize = stage.spirv.size() * sizeof(uint32_t);
+		sm_info[num_stages].pCode = stage.spirv.data();
+		stages[num_stages].pNext = &sm_info[num_stages];
+		stages[num_stages].stage = stage.pipeline_stage;;
 		stages[num_stages].pName = "main";
 		num_stages++;
 	}
@@ -492,11 +448,15 @@ export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk:
 	return pso;
 }
 
-export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk::PipelineLayout layout, Shader* shader, const ComputePSOKey& key) 
+export std::expected<vk::Pipeline, bool> compile_pipeline(vk::Device device, vk::PipelineLayout layout, Shader& shader, const ComputePSOKey& key) 
 {
+	vk::ShaderModuleCreateInfo sm_info{};
+	sm_info.codeSize = shader.stages[0].spirv.size() * sizeof(uint32_t);
+	sm_info.pCode = shader.stages[0].spirv.data();
+		
 	vk::PipelineShaderStageCreateInfo sstage{};	
-	sstage.stage = shader->pipeline_stage;
-	sstage.module = shader->shader_module;
+	sstage.pNext = &sm_info;
+	sstage.stage = shader.stages[0].pipeline_stage;;
 	sstage.pName = "main";
 
 	auto [result, pso] = device.createComputePipeline(nullptr,
@@ -523,16 +483,8 @@ struct std::hash<lumina::vulkan::GraphicsPSOKey>
 {
 	std::size_t operator()(const lumina::vulkan::GraphicsPSOKey& key) const noexcept
 	{
-		auto hv = std::filesystem::hash_value(key.shaders[0]);
-		for(uint32_t i = 1; i < lumina::vulkan::max_shader_stages; i++)
-		{
-			if(key.shaders[i].empty())
-				break;
-
-			hv = lumina::hash_combine(hv, std::filesystem::hash_value(key.shaders[i]));
-		}
-
-		return lumina::hash_combine(hv, xxhash::XXH3_64bits(&key, sizeof(key) - (sizeof(std::filesystem::path) * lumina::vulkan::max_shader_stages)));
+		auto hv = std::filesystem::hash_value(key.shader);
+		return lumina::hash_combine(hv, xxhash::XXH3_64bits(&key, sizeof(key) - sizeof(std::filesystem::path)));
 	}
 };
 

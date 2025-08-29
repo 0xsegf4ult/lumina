@@ -29,13 +29,21 @@ void init_mesh_storage(vulkan::Device& device, MeshStorage& data)
 		.size = sizeof(Mesh::Vertex::pos_type) * data.gpu_vertcap,
 		.debug_name = "mesh_vertex_pos"
 	});
-
-	data.gpu_vertex_attr_buffer = device.create_buffer
+	
+	data.gpu_vertex_uv_buffer = device.create_buffer
 	({
 		.domain = vulkan::BufferDomain::Device,
 		.usage = vulkan::BufferUsage::VertexBuffer,
-		.size = sizeof(Mesh::Vertex::Attributes) * data.gpu_vertcap,
-		.debug_name = "mesh_vertex_attr"
+		.size = sizeof(Mesh::Vertex::uv_type) * data.gpu_vertcap,
+		.debug_name = "mesh_vertex_uv"
+	});
+
+	data.gpu_vertex_norms_buffer = device.create_buffer
+	({
+		.domain = vulkan::BufferDomain::Device,
+		.usage = vulkan::BufferUsage::VertexBuffer,
+		.size = sizeof(Mesh::Vertex::NormalAttributes) * data.gpu_vertcap,
+		.debug_name = "mesh_vertex_norms"
 	});
 
 	data.gpu_index_buffer = device.create_buffer
@@ -504,7 +512,7 @@ Handle<Mesh> ResourceManager::skinned_mesh_instantiate(Handle<SkinnedMesh> skm)
 
 	if(data.meshes.size() <= data.next_mesh)
 		data.meshes.insert(data.meshes.end(), (data.next_mesh + 1) - data.meshes.size(), Mesh{});
-	
+	/*
 	data.meshes[data.next_mesh] = Mesh
 	{
 		sk_mesh.name,
@@ -523,7 +531,7 @@ Handle<Mesh> ResourceManager::skinned_mesh_instantiate(Handle<SkinnedMesh> skm)
 		true,
 		false
 	};
-	
+*/	
 
 	auto mh = Handle<Mesh>{data.next_mesh++};
 	data.sk_instance_queue.push_back({mh, data.gpu_lodbuf_head++});
@@ -692,13 +700,26 @@ void ResourceManager::bind_mesh_vpos(vulkan::CommandBuffer& cmd)
 	cmd.bind_index_buffer(mesh_storage.gpu_index_buffer.get(), vk::IndexType::eUint8);
 }
 
+void ResourceManager::bind_mesh_UV(vulkan::CommandBuffer& cmd)
+{
+	ZoneScoped;
+	cmd.bind_vertex_buffers
+	({
+		mesh_storage.gpu_vertex_pos_buffer.get(),
+		mesh_storage.gpu_vertex_uv_buffer.get()
+	});
+
+	cmd.bind_index_buffer(mesh_storage.gpu_index_buffer.get(), vk::IndexType::eUint8);
+}
+
 void ResourceManager::bind_mesh_full(vulkan::CommandBuffer& cmd)
 {
 	ZoneScoped;
 	cmd.bind_vertex_buffers
 	({
 		mesh_storage.gpu_vertex_pos_buffer.get(),
-		mesh_storage.gpu_vertex_attr_buffer.get()
+		mesh_storage.gpu_vertex_uv_buffer.get(),
+		mesh_storage.gpu_vertex_norms_buffer.get()
 	});
 
 	cmd.bind_index_buffer(mesh_storage.gpu_index_buffer.get(), vk::IndexType::eUint8);
@@ -709,7 +730,8 @@ MeshStorageBuffers ResourceManager::get_mesh_buffers()
 	return
 	{
 		mesh_storage.gpu_vertex_pos_buffer.get(),
-		mesh_storage.gpu_vertex_attr_buffer.get(),
+		mesh_storage.gpu_vertex_uv_buffer.get(),
+		mesh_storage.gpu_vertex_norms_buffer.get(),
 		mesh_storage.gpu_index_buffer.get(),
 		mesh_storage.gpu_skinned_vertices.get(),
 		mesh_storage.gpu_meshlod_buffer.get(),
@@ -773,7 +795,8 @@ std::pair<uint32_t, uint32_t> ResourceManager::process_mesh_queue()
 	auto iq_size = data.sk_instance_queue.size();
 
 	data.transfer_cmd_vpos.reserve(aq_size);
-	data.transfer_cmd_vattr.reserve(aq_size);
+	data.transfer_cmd_vuv.reserve(aq_size);
+	data.transfer_cmd_vnorms.reserve(aq_size);
 	data.transfer_cmd_idx.reserve(aq_size);
 	data.transfer_cmd_lod.reserve(aq_size + iq_size);
 	data.transfer_cmd_skv.reserve(aq_size);
@@ -791,7 +814,8 @@ std::pair<uint32_t, uint32_t> ResourceManager::process_mesh_queue()
 		uint32_t ccount = 0;
 
 		uint32_t vpos_size = 0;
-		uint32_t vattr_size = 0;
+		uint32_t vuv_size = 0;
+		uint32_t vnorm_size = 0;
 		uint32_t idx_size = 0;
 		uint32_t lod_size = 0;
 		uint32_t cluster_size = 0;
@@ -821,13 +845,14 @@ std::pair<uint32_t, uint32_t> ResourceManager::process_mesh_queue()
 			}
 		
 			vpos_size = vcount * sizeof(Mesh::Vertex::pos_type);
-			vattr_size = vcount * sizeof(Mesh::Vertex::Attributes);
+			vuv_size = vcount * sizeof(Mesh::Vertex::uv_type);
+			vnorm_size = vcount * sizeof(Mesh::Vertex::NormalAttributes);
 			idx_size = icount * sizeof(uint8_t);
 			lod_size = m.lod_count * sizeof(Mesh::LODLevel);
 			cluster_size = ccount * sizeof(Mesh::Cluster);
 		}
 			
-		uint32_t d_size = vpos_size + vattr_size + idx_size + lod_size + cluster_size;
+		uint32_t d_size = vpos_size + vuv_size + vnorm_size + idx_size + lod_size + cluster_size;
 		if(stream_buffer_head + d_size >= stream_buffer_size)
 			break;
 
@@ -858,7 +883,8 @@ std::pair<uint32_t, uint32_t> ResourceManager::process_mesh_queue()
 			idx_offset = m.clusters[0].index_offset * sizeof(uint8_t);
 			
 			uint32_t vpos_offset = static_cast<uint32_t>(m.clusters[0].vertex_offset) * sizeof(Mesh::Vertex::pos_type);
-			uint32_t vattr_offset = static_cast<uint32_t>(m.clusters[0].vertex_offset) * sizeof(Mesh::Vertex::Attributes);
+			uint32_t vuv_offset = static_cast<uint32_t>(m.clusters[0].vertex_offset) * sizeof(Mesh::Vertex::uv_type);
+			uint32_t vnorm_offset = static_cast<uint32_t>(m.clusters[0].vertex_offset) * sizeof(Mesh::Vertex::NormalAttributes);
 			uint32_t lod_offset = m.lod0_offset * sizeof(Mesh::LODLevel);
 			uint32_t cluster_offset = m.lods[0].cluster_offset * sizeof(Mesh::Cluster);
 
@@ -870,14 +896,23 @@ std::pair<uint32_t, uint32_t> ResourceManager::process_mesh_queue()
 			});
 			stream_buffer_head += vpos_size;
 
-			std::memcpy(streambuf + stream_buffer_head, mesh_data + header->vattr_offset, vattr_size);
-			data.transfer_cmd_vattr.push_back
+			std::memcpy(streambuf + stream_buffer_head, mesh_data + header->vuv_offset, vuv_size);
+			data.transfer_cmd_vuv.push_back
 			({
 				.srcOffset = stream_buffer_head,
-				.dstOffset = vattr_offset,
-				.size = vattr_size
+				.dstOffset = vuv_offset,
+				.size = vuv_size
 			});
-			stream_buffer_head += vattr_size;
+			stream_buffer_head += vuv_size;
+
+			std::memcpy(streambuf + stream_buffer_head, mesh_data + header->vnorms_offset, vnorm_size);
+			data.transfer_cmd_vnorms.push_back
+			({
+				.srcOffset = stream_buffer_head,
+				.dstOffset = vnorm_offset,
+				.size = vnorm_size
+			});
+			stream_buffer_head += vnorm_size;
 
 			std::memcpy(streambuf + stream_buffer_head, &m.lods[0], lod_size);
 			data.transfer_cmd_lod.push_back
@@ -1086,7 +1121,15 @@ void ResourceManager::copy_mesh_data(uint32_t assets, uint32_t instances)
 		.dst_stage = vk::PipelineStageFlagBits2::eAllCommands,
 		.src_queue = vulkan::Queue::Graphics,
 		.dst_queue = vulkan::Queue::Transfer,
-		.buffer = data.gpu_vertex_attr_buffer.get(),
+		.buffer = data.gpu_vertex_uv_buffer.get(),
+		},
+		{
+		.src_stage = vk::PipelineStageFlagBits2::eVertexAttributeInput,
+		.src_access = vk::AccessFlagBits2::eVertexAttributeRead,
+		.dst_stage = vk::PipelineStageFlagBits2::eAllCommands,
+		.src_queue = vulkan::Queue::Graphics,
+		.dst_queue = vulkan::Queue::Transfer,
+		.buffer = data.gpu_vertex_norms_buffer.get(),
 		},
 		{
 		.src_stage = vk::PipelineStageFlagBits2::eIndexInput,
@@ -1141,7 +1184,15 @@ void ResourceManager::copy_mesh_data(uint32_t assets, uint32_t instances)
 		.dst_access = vk::AccessFlagBits2::eTransferWrite,
 		.src_queue = vulkan::Queue::Graphics,
 		.dst_queue = vulkan::Queue::Transfer,
-		.buffer = data.gpu_vertex_attr_buffer.get(),
+		.buffer = data.gpu_vertex_uv_buffer.get()
+		},
+		{
+		.src_stage = vk::PipelineStageFlagBits2::eTransfer,
+		.dst_stage = vk::PipelineStageFlagBits2::eTransfer,
+		.dst_access = vk::AccessFlagBits2::eTransferWrite,
+		.src_queue = vulkan::Queue::Graphics,
+		.dst_queue = vulkan::Queue::Transfer,
+		.buffer = data.gpu_vertex_norms_buffer.get(),
 		},
 		{
 		.src_stage = vk::PipelineStageFlagBits2::eTransfer,
@@ -1180,8 +1231,11 @@ void ResourceManager::copy_mesh_data(uint32_t assets, uint32_t instances)
 	if(!data.transfer_cmd_vpos.empty())
 		cmd.vk_object().copyBuffer(stream_buffer->handle, data.gpu_vertex_pos_buffer->handle, static_cast<uint32_t>(data.transfer_cmd_vpos.size()), data.transfer_cmd_vpos.data());
 
-	if(!data.transfer_cmd_vattr.empty())
-		cmd.vk_object().copyBuffer(stream_buffer->handle, data.gpu_vertex_attr_buffer->handle, static_cast<uint32_t>(data.transfer_cmd_vattr.size()), data.transfer_cmd_vattr.data());
+	if(!data.transfer_cmd_vuv.empty())
+		cmd.vk_object().copyBuffer(stream_buffer->handle, data.gpu_vertex_uv_buffer->handle, static_cast<uint32_t>(data.transfer_cmd_vuv.size()), data.transfer_cmd_vuv.data());
+
+	if(!data.transfer_cmd_vnorms.empty())
+		cmd.vk_object().copyBuffer(stream_buffer->handle, data.gpu_vertex_norms_buffer->handle, static_cast<uint32_t>(data.transfer_cmd_vnorms.size()), data.transfer_cmd_vnorms.data());
 
 	if(!data.transfer_cmd_idx.empty())
 		cmd.vk_object().copyBuffer(stream_buffer->handle, data.gpu_index_buffer->handle, static_cast<uint32_t>(data.transfer_cmd_idx.size()), data.transfer_cmd_idx.data());
@@ -1211,7 +1265,15 @@ void ResourceManager::copy_mesh_data(uint32_t assets, uint32_t instances)
 		.dst_stage = vk::PipelineStageFlagBits2::eAllCommands,
 		.src_queue = vulkan::Queue::Transfer,
 		.dst_queue = vulkan::Queue::Graphics,
-		.buffer = data.gpu_vertex_attr_buffer.get(),
+		.buffer = data.gpu_vertex_uv_buffer.get()
+		},
+		{
+		.src_stage = vk::PipelineStageFlagBits2::eTransfer,
+		.src_access = vk::AccessFlagBits2::eTransferWrite,
+		.dst_stage = vk::PipelineStageFlagBits2::eAllCommands,
+		.src_queue = vulkan::Queue::Transfer,
+		.dst_queue = vulkan::Queue::Graphics,
+		.buffer = data.gpu_vertex_norms_buffer.get(),
 		},
 		{
 		.src_stage = vk::PipelineStageFlagBits2::eTransfer,
@@ -1266,7 +1328,15 @@ void ResourceManager::copy_mesh_data(uint32_t assets, uint32_t instances)
 		.dst_access = vk::AccessFlagBits2::eVertexAttributeRead,
 		.src_queue = vulkan::Queue::Transfer,
 		.dst_queue = vulkan::Queue::Graphics,
-		.buffer = data.gpu_vertex_attr_buffer.get(),
+		.buffer = data.gpu_vertex_uv_buffer.get(),
+		},
+		{
+		.src_stage = vk::PipelineStageFlagBits2::eVertexAttributeInput,
+		.dst_stage = vk::PipelineStageFlagBits2::eVertexAttributeInput,
+		.dst_access = vk::AccessFlagBits2::eVertexAttributeRead,
+		.src_queue = vulkan::Queue::Transfer,
+		.dst_queue = vulkan::Queue::Graphics,
+		.buffer = data.gpu_vertex_norms_buffer.get(),
 		},
 		{
 		.src_stage = vk::PipelineStageFlagBits2::eIndexInput,
@@ -1326,7 +1396,8 @@ void ResourceManager::copy_mesh_data(uint32_t assets, uint32_t instances)
 	data.sk_instance_queue.erase(data.sk_instance_queue.begin(), data.sk_instance_queue.begin() + instances);
 
 	data.transfer_cmd_vpos.clear();
-	data.transfer_cmd_vattr.clear();
+	data.transfer_cmd_vuv.clear();
+	data.transfer_cmd_vnorms.clear();
 	data.transfer_cmd_idx.clear();
 	data.transfer_cmd_skv.clear();
 	data.transfer_cmd_lod.clear();

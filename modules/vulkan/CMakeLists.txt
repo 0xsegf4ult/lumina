@@ -26,7 +26,7 @@ target_compile_definitions(VulkanHppModule PUBLIC
 )
 target_link_libraries(VulkanHppModule PUBLIC Vulkan::Headers)
 
-target_link_libraries(lumina_vulkan PUBLIC VulkanHppModule PRIVATE lumina_core lumina_platform spirv-cross-port xxhash-port)
+target_link_libraries(lumina_vulkan PUBLIC VulkanHppModule PRIVATE lumina_core lumina_platform lumina_vfs xxhash-port)
 
 target_sources(lumina_vulkan PUBLIC FILE_SET CXX_MODULES 
 	FILES

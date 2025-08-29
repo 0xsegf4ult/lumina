@@ -118,7 +118,7 @@ public:
 			.applicationVersion = 1,
 			.pEngineName = "lumina::engine",
 			.engineVersion = 1,
-			.apiVersion = vk::makeApiVersion(1, 3, 0, 0)
+			.apiVersion = vk::makeApiVersion(0, 1, 4, 0)
 		};
 		
 		std::vector<const char*> enabled_extensions;
@@ -220,7 +220,7 @@ public:
 		}
 
 		// FIXME: make configurable
-		vk::StructureChain<vk::DeviceCreateInfo, vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features, vk::PhysicalDeviceVulkan12Features, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceRobustness2FeaturesEXT, vk::PhysicalDeviceIndexTypeUint8FeaturesEXT> chain =
+		vk::StructureChain<vk::DeviceCreateInfo, vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features, vk::PhysicalDeviceVulkan12Features, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceRobustness2FeaturesEXT, vk::PhysicalDeviceIndexTypeUint8FeaturesEXT, vk::PhysicalDeviceMaintenance5Features> chain =
 		{
 			{
 				.queueCreateInfoCount = static_cast<uint32_t>(queue_ci.size()),
@@ -246,7 +246,8 @@ public:
 
 			},
 			{
-				.multiview = true
+				.multiview = true,
+				.shaderDrawParameters = true
 			},
 			{
 				.drawIndirectCount = true,
@@ -264,6 +265,7 @@ public:
 				.bufferDeviceAddress = true
 			},
 			{
+				.shaderDemoteToHelperInvocation = true,
 				.synchronization2 = true,
 				.dynamicRendering = true,
 			},
@@ -272,6 +274,9 @@ public:
 			},
 			{
 				.indexTypeUint8 = true
+			},
+			{
+				.maintenance5 = true
 			}
 		};
 

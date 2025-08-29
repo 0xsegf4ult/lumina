@@ -1,209 +1,112 @@
 export module lumina.vulkan:shader;
 
-import spirv_cross;
 import std;
 import vulkan_hpp;
 import :descriptor;
 
 import lumina.core;
+import lumina.vfs;
 
 using std::uint32_t, std::size_t;
 
 namespace lumina::vulkan
 {
 
-constexpr bool dump_reflection_info = false;
+export const size_t max_shader_stages = 5;
+
+export struct ShaderFileFormat
+{
+	constexpr static uint32_t fmt_magic = 0x4c48534c;
+	constexpr static uint32_t fmt_major_version = 1u;
+	constexpr static uint32_t fmt_minor_version = 0u;
+
+	enum class Stage : uint32_t
+	{
+		Vertex,
+		Fragment,
+		Compute
+	};
+
+	struct Header
+	{
+		uint32_t magic{fmt_magic};
+		uint32_t vmajor{fmt_major_version};
+		uint32_t vminor{fmt_minor_version};
+		uint32_t num_dslkeys;
+		uint32_t pcb_size;
+		vk::ShaderStageFlags pcb_stages;
+		uint32_t num_stages;
+	};
+
+	struct ShaderStage
+	{
+		Stage stage;
+		uint32_t code_size;
+		uint32_t code_offset;
+	};
+};
 
 export struct Shader
 {
-	vk::ShaderStageFlagBits pipeline_stage{};
-	vk::ShaderModule shader_module;
+	struct ShaderStage
+	{
+		std::vector<uint32_t> spirv;
+		vk::ShaderStageFlagBits pipeline_stage{};
+	};
+	std::array<ShaderStage, max_shader_stages> stages;
 
-	vk::PushConstantRange pconst{};
 	std::array<DescriptorSetLayoutKey, 4> dsl_keys{};
+	vk::PushConstantRange pconst{};
 };
 
-vk::ShaderStageFlagBits infer_shader_kind(const std::filesystem::path& path)
-{
-	const std::string& ext = path.string();
-	if(ext.contains(".vert"))
-		return vk::ShaderStageFlagBits::eVertex;
-	if(ext.contains(".frag"))
-		return vk::ShaderStageFlagBits::eFragment;
-	if(ext.contains(".geom"))
-		return vk::ShaderStageFlagBits::eGeometry;
-	if(ext.contains(".comp"))
-		return vk::ShaderStageFlagBits::eCompute;
-
-	return vk::ShaderStageFlagBits::eAll;
-}
-
-void shader_reflect(Shader& stg, const std::vector<uint32_t>& spirv)
-{
-	spirv_cross::Compiler spvcomp(spirv);
-	spirv_cross::ShaderResources res;
-
-	res = spvcomp.get_shader_resources();
-	auto stage = stg.pipeline_stage;
-
-	for(const auto& pcb : res.push_constant_buffers)
-	{
-		vk::PushConstantRange& vkstruct = stg.pconst;
-		auto ranges = spvcomp.get_active_buffer_ranges(pcb.id);
-
-		vkstruct.stageFlags |= stage;
-		uint32_t range_acc = vkstruct.size;
-		for(auto& range : ranges)
-			range_acc += range.range;
-
-		vkstruct.size = std::max(vkstruct.size, range_acc);
-	}
-	if(stg.pconst.size >= 128)
-		log::warn("shader_reflect: push constant size exceeds 128 bytes");
-
-	auto emit_bindings = [&spvcomp, stage](const spirv_cross::Resource& r, DescriptorSetLayoutKey& dsl)
-	{
-		const auto& type = spvcomp.get_type(r.type_id);
-
-		auto bindpoint = spvcomp.get_decoration(r.id, spv::DecorationBinding);
-		
-		dsl.binding_arraysize[bindpoint] = 1;
-		if(!type.array.empty())
-		{
-			if(type.array[0] == 0)
-			{
-				if constexpr(dump_reflection_info)
-					log::debug("binding {} is variable size", bindpoint);
-				dsl.variable_bindings |= (1u << bindpoint);
-			}
-					
-			dsl.binding_arraysize[bindpoint] = type.array[0];
-		}
-
-		std::string dbg_s{};
-
-		if(stage & vk::ShaderStageFlagBits::eVertex)
-		{
-			dsl.vs_bindings |= (1u << bindpoint);
-			if constexpr(dump_reflection_info)
-				dbg_s += " VS";
-		}
-		if(stage & vk::ShaderStageFlagBits::eFragment)
-		{
-			dsl.fs_bindings |= (1u << bindpoint);
-			if constexpr(dump_reflection_info)
-				dbg_s += " FS";
-		}
-		if(stage & vk::ShaderStageFlagBits::eCompute)
-		{
-			dsl.cs_bindings |= (1u << bindpoint);
-			
-			if constexpr(dump_reflection_info)
-				dbg_s += "CS";
-		}
-
-		if constexpr(dump_reflection_info)
-			log::debug("binding {} is accessed in {}", bindpoint, dbg_s);
-
-		return bindpoint;
-	};
-
-	{
-		for(const auto& tex : res.sampled_images)
-		{
-			auto set = spvcomp.get_decoration(tex.id, spv::DecorationDescriptorSet);
-			auto bindpoint = emit_bindings(tex, stg.dsl_keys[set]);
-			stg.dsl_keys[set].sampled_image_bindings |= (1u << bindpoint);	
-			if constexpr(dump_reflection_info)
-				log::debug("binding {} is IMAGE_SAMPLER", bindpoint);
-		}
-
-		for(const auto& ubo : res.uniform_buffers)
-		{
-			auto set = spvcomp.get_decoration(ubo.id, spv::DecorationDescriptorSet);
-			auto bindpoint = emit_bindings(ubo, stg.dsl_keys[set]);
-			stg.dsl_keys[set].uniform_buffer_bindings |= (1u << bindpoint);
-			if constexpr(dump_reflection_info)
-				log::debug("binding {} is UNIFORM_BUFFER", bindpoint);
-		}
-
-		for(const auto& ssbo : res.storage_buffers)
-		{
-			auto set = spvcomp.get_decoration(ssbo.id, spv::DecorationDescriptorSet);
-			auto bindpoint = emit_bindings(ssbo, stg.dsl_keys[set]);
-			stg.dsl_keys[set].storage_buffer_bindings |= (1u << bindpoint);
-			if constexpr(dump_reflection_info)
-				log::debug("binding {} is STORAGE_BUFFER", bindpoint);
-		}
-
-		for(const auto& si : res.storage_images)
-		{
-			auto set = spvcomp.get_decoration(si.id, spv::DecorationDescriptorSet);
-			auto bindpoint = emit_bindings(si, stg.dsl_keys[set]);
-			stg.dsl_keys[set].storage_image_bindings |= (1u << bindpoint);
-			if constexpr(dump_reflection_info)
-				log::debug("binding {} is STORAGE_IMAGE", bindpoint);
-		}
-
-		for(const auto& si : res.separate_images)
-		{
-			auto set = spvcomp.get_decoration(si.id, spv::DecorationDescriptorSet);
-			auto bindpoint = emit_bindings(si, stg.dsl_keys[set]);
-			stg.dsl_keys[set].separate_image_bindings |= (1u << bindpoint);
-			if constexpr(dump_reflection_info)
-				log::debug("binding {} is SAMPLED_IMAGE", bindpoint);
-		}
-
-		for(const auto& s : res.separate_samplers)
-		{
-			auto set = spvcomp.get_decoration(s.id, spv::DecorationDescriptorSet);
-			auto bindpoint = emit_bindings(s, stg.dsl_keys[set]);
-			stg.dsl_keys[set].sampler_bindings |= (1u << bindpoint);
-			if constexpr(dump_reflection_info)
-				log::debug("binding {} is SAMPLER", bindpoint);
-		}
-	}
-}
-
-export std::expected<Shader, std::string_view> load_spv(vk::Device device, const std::filesystem::path& path)
+export std::expected<Shader, std::string_view> load_shader(vk::Device device, const vfs::path& path)
 {
 	log::info("shader_cache: compiling shader {}", path.string());
 	
-	auto stage = infer_shader_kind(path);
-	std::ifstream spv_file{path, std::ios::binary | std::ios::ate};
-	if(!spv_file.is_open())
+	Shader res;
+
+	auto shader_file = vfs::open(path, vfs::access_readonly);
+	if(!shader_file.has_value())
+		return std::unexpected("file not found");
+
+	const auto* shader_data = vfs::map<std::byte>(*shader_file, vfs::access_readonly);
+	const auto* header = reinterpret_cast<const ShaderFileFormat::Header*>(shader_data);
+	if(header->magic != ShaderFileFormat::fmt_magic || header->vmajor != ShaderFileFormat::fmt_major_version)
+		return std::unexpected("invalid file");
+
+	res.pconst.stageFlags = header->pcb_stages;
+	res.pconst.size = header->pcb_size;
+
+	const auto* stages = reinterpret_cast<const ShaderFileFormat::ShaderStage*>(shader_data + sizeof(ShaderFileFormat::Header));
+	for(uint32_t i = 0; i < header->num_stages; i++)
 	{
-		return std::unexpected{"failed to open file"};
+		const auto& stage = stages[i];
+		switch(stage.stage)
+		{
+		using enum ShaderFileFormat::Stage;
+		case Vertex:
+			res.stages[i].pipeline_stage = vk::ShaderStageFlagBits::eVertex;
+			break;
+		case Fragment:
+			res.stages[i].pipeline_stage = vk::ShaderStageFlagBits::eFragment;
+			break;
+		case Compute:
+			res.stages[i].pipeline_stage = vk::ShaderStageFlagBits::eCompute;
+			break;
+		}
+
+		res.stages[i].spirv.resize(stage.code_size / sizeof(uint32_t));
+		std::memcpy(res.stages[i].spirv.data(), shader_data + stage.code_offset, stage.code_size);
 	}
 
-	auto code_size = spv_file.tellg();
-	spv_file.seekg(0u);
-	std::vector<uint32_t> code(static_cast<size_t>(code_size) / sizeof(uint32_t));
-	spv_file.read(reinterpret_cast<char*>(code.data()), code_size);
-
-	vk::ShaderModule mod;
-
-	try
+	const auto* dsl_keys = reinterpret_cast<const std::byte*>(shader_data + sizeof(ShaderFileFormat::Header) + sizeof(ShaderFileFormat::ShaderStage) * header->num_stages);
+	for(uint32_t i = 0; i < header->num_dslkeys; i++)
 	{
-		mod = device.createShaderModule
-		({
-			.codeSize = code.size() * sizeof(uint32_t),
-			.pCode = code.data()
-		});
-	}
-	catch(const vk::Error& err)
-	{
-		return std::unexpected{err.what()};
+		std::memcpy(&res.dsl_keys[i], dsl_keys, sizeof(DescriptorSetLayoutKey));
+		dsl_keys += sizeof(DescriptorSetLayoutKey);
 	}
 
-	Shader stg
-	{
-		.pipeline_stage = stage,
-		.shader_module = mod
-	};
-
-	shader_reflect(stg, code);
-	return stg;	
+	return res;
 }
 
 }

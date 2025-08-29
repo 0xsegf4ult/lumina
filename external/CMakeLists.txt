@@ -1,6 +1,5 @@
 set(SPDLOG_USE_STD_FORMAT ON)
 add_subdirectory("spdlog")
 add_subdirectory("imgui-port")
-add_subdirectory("spirv-cross-port")
 add_subdirectory("xxhash-port")
 add_subdirectory("tracy")

@@ -90,15 +90,17 @@ struct StaticVertexFormat
 	using pos_type = vec3;
 	pos_type pos;
 
-	struct Attributes
+	using uv_type = vec2;
+	uv_type uv{0.0f};
+	
+	struct NormalAttributes
 	{
-		float enc_tangent;
-		vec2 uv{0.0f};
 		Vector<uint16_t, 2> oct_normal;
-	} attr;
+		float enc_tangent;
+	} norms;
 };
 static_assert(sizeof(StaticVertexFormat) == 28u);
-static_assert(sizeof(StaticVertexFormat::Attributes) == 16u);
+static_assert(sizeof(StaticVertexFormat::NormalAttributes) == 8u);
 
 struct SkinnedVertexFormat
 {
@@ -114,7 +116,7 @@ static_assert(sizeof(SkinnedVertexFormat) == 48u);
 struct MeshFormat
 {
 	constexpr static uint32_t fmt_magic = 0x4c444d4c;
-	constexpr static uint32_t fmt_major_version = 1u;
+	constexpr static uint32_t fmt_major_version = 2u;
 	constexpr static uint32_t fmt_minor_version = 1u;
 	constexpr static uint32_t max_lod_count = 5u;
 
@@ -131,7 +133,8 @@ struct MeshFormat
 		uint32_t vminor{fmt_minor_version};
 		VertexFormat vert_format;
 		uint32_t vpos_offset;
-		uint32_t vattr_offset;
+		uint32_t vuv_offset;
+		uint32_t vnorms_offset;
 		uint32_t index_offset;
 		uint32_t lod_offset;
 		uint32_t num_lods;

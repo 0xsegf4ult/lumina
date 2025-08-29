@@ -117,6 +117,7 @@ public:
 	}
 
 	void bind_mesh_vpos(vulkan::CommandBuffer& cmd);
+	void bind_mesh_UV(vulkan::CommandBuffer& cmd);
 	void bind_mesh_full(vulkan::CommandBuffer& cmd);
 	MeshStorageBuffers get_mesh_buffers();
 	vk::DescriptorSet get_texture_descriptor() const;

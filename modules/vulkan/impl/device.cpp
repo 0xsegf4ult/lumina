@@ -180,9 +180,6 @@ Device::~Device()
 	for(auto& [key, dsl] : ds_cache.layout_data)
 		handle.destroyDescriptorSetLayout(dsl);
 
-	for(auto& [sh, stage] : shader_cache.data)
-		handle.destroyShaderModule(stage.shader_module);
-
         for(auto& sampler : sampler_prefabs)
                 handle.destroySampler(sampler);
 
@@ -914,8 +911,7 @@ Shader* Device::try_get_shader(const std::filesystem::path& path)
 
 	{
 		std::filesystem::path spath = "shaders" / path;
-	        spath += std::filesystem::path{".spv"};
-		auto result = load_spv(handle, spath);
+		auto result = load_shader(handle, spath);
 	       	if(!result.has_value())
 		{
 			log::warn("shader_cache: failed to load shader {}: {}", path.string(), result.error());
@@ -994,28 +990,17 @@ Pipeline* Device::try_get_pipeline(const GraphicsPSOKey& key)
 	{
 		Pipeline pipe;
 		
-		std::array<Shader*, max_shader_stages> shaders;
-		uint32_t num_shaders = 0;
+		const Handle<Shader> shandle{fnv::hash(key.shader.c_str())};
+		auto* sptr = try_get_shader(key.shader);
+		if(!sptr)
+			return nullptr;
 
-		for(auto& shader : key.shaders)
-		{
-			if(shader.empty())
-				break;
+		pipe.shader = shandle;
 
-			const Handle<Shader> shandle{fnv::hash(shader.c_str())};
-			auto* sptr = try_get_shader(shader);
-			if(!sptr) 
-				return nullptr;
-
-			shaders[num_shaders] = sptr;
-			pipe.shaders[num_shaders] = shandle;
-			num_shaders++;
-		}
-
-		auto layout_key = build_pipe_layout({shaders.data(), num_shaders});
+		PipelineLayoutKey layout_key = {.dsl_keys = sptr->dsl_keys, .pconst = sptr->pconst};
 		auto& layout = get_pipeline_layout(layout_key);
 
-		auto result = compile_pipeline(handle, layout.handle, {shaders.data(), num_shaders}, key);
+		auto result = compile_pipeline(handle, layout.handle, *sptr, key);
 		if(!result.has_value())
 			return nullptr;
 
@@ -1046,11 +1031,11 @@ Pipeline* Device::try_get_pipeline(const ComputePSOKey& key)
 		if(!sptr)
 			return nullptr;
 
-		pipe.shaders[0] = shandle;
-		auto layout_key = build_pipe_layout({&sptr, 1});
+		pipe.shader = shandle;
+		PipelineLayoutKey layout_key = {.dsl_keys = sptr->dsl_keys, .pconst = sptr->pconst};
 		auto& layout = get_pipeline_layout(layout_key);
 
-		auto result = compile_pipeline(handle, layout.handle, sptr, key);
+		auto result = compile_pipeline(handle, layout.handle, *sptr, key);
 		if(!result.has_value())
 			return nullptr;
 
