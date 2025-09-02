@@ -138,7 +138,8 @@ struct MeshStorage
 	struct SkinnedInstanceRequest
 	{
 		Handle<Mesh> instance;
-		uint32_t offset;
+		uint32_t lod_offset;
+		uint32_t cluster_offset;
 	};
 
 	std::mutex queue_lock;

@@ -502,39 +502,56 @@ Handle<Mesh> ResourceManager::skinned_mesh_instantiate(Handle<SkinnedMesh> skm)
 		return Handle<Mesh>{0};
 	}
 
+	if(data.gpu_lodbuf_head + sk_mesh.lod_count > data.gpu_lodcap)
+	{
+		log::error("resource_manager: LOD buffer overflowed");
+		return Handle<Mesh>{0};
+	}
+
+	if(data.gpu_clusterbuf_head + sk_mesh.clusters.size() > data.gpu_clustercap)
+	{
+		log::error("resource_manager: cluster buffer overflowed");
+		return Handle<Mesh>{0};
+	}
+
 	auto sk_voff = data.gpu_vbuf_head;
 	data.gpu_vbuf_head += vcount;
 
-	auto sk_cloff = data.gpu_clusterbuf_head;
-	
-
 	auto sk_lodoff = data.gpu_lodbuf_head;
+	auto sk_cloff = data.gpu_clusterbuf_head;
 
 	if(data.meshes.size() <= data.next_mesh)
 		data.meshes.insert(data.meshes.end(), (data.next_mesh + 1) - data.meshes.size(), Mesh{});
-	/*
-	data.meshes[data.next_mesh] = Mesh
+
+
+	auto& nm = data.meshes[data.next_mesh];
+	nm.name = sk_mesh.name;
+	nm.sphere = sk_mesh.sphere;
+
+	nm.lods = sk_mesh.lods;
+	nm.clusters = sk_mesh.clusters;
+	nm.lod_count = sk_mesh.lod_count;
+	nm.lod0_offset = sk_lodoff;
+
+	for(uint32_t i = 0; i < nm.lods.size(); i++)
 	{
-		sk_mesh.name,
-		sk_mesh.sphere,
-		{
-			Mesh::LODLevel
-			{
-				data.gpu_vbuf_head,
-				sk_mesh.vertex_count,
-				sk_mesh.ib_index_offset,
-				sk_mesh.index_count
-			}
-		},
-		1,
-		data.gpu_lodbuf_head,
-		true,
-		false
-	};
-*/	
+		auto& lod = nm.lods[i];
+		lod.cluster_offset = lod.cluster_offset - nm.lods[0].cluster_offset + sk_cloff;
+	}
+
+	for(uint32_t i = 0; i < nm.clusters.size(); i++)
+	{
+		auto& cluster = nm.clusters[i];
+		cluster.vertex_offset = cluster.vertex_offset - nm.clusters[0].vertex_offset + sk_voff;
+	}
+
+	nm.dynamic_instance = true;
 
 	auto mh = Handle<Mesh>{data.next_mesh++};
-	data.sk_instance_queue.push_back({mh, data.gpu_lodbuf_head++});
+	data.sk_instance_queue.push_back({mh, sk_lodoff, sk_cloff});
+	data.gpu_lodbuf_head += nm.lod_count;
+	data.gpu_clusterbuf_head += nm.clusters.size();
+
 	return mh;
 }
 
@@ -822,16 +839,25 @@ std::pair<uint32_t, uint32_t> ResourceManager::process_mesh_queue()
 
 		if(entry.skinned)
 		{
-			SkinnedMesh& m = data.sk_meshes[entry.handle];
-			/*vcount = m.vertex_count;
-			icount = m.index_count;
-*/
+			const auto& m = data.sk_meshes[entry.handle];
+			
+			for(uint32_t i = 0; i < m.lod_count; i++)
+			{
+				for(uint32_t c = 0; c < m.lods[i].cluster_count; c++)
+				{
+					uint32_t coff = c + (m.lods[i].cluster_offset - m.lods[0].cluster_offset);
+					vcount += m.clusters[coff].vertex_count;
+					icount += m.clusters[coff].index_count;
+				}
+				ccount += m.lods[i].cluster_count;
+			}
+			
 			vpos_size = vcount * sizeof(SkinnedMesh::Vertex);
 			idx_size = icount * sizeof(uint8_t);
 		}
 		else
 		{
-			Mesh& m = data.meshes[entry.handle];
+			const auto& m = data.meshes[entry.handle];
 
 			for(uint32_t i = 0; i < m.lod_count; i++)
 			{
@@ -866,8 +892,9 @@ std::pair<uint32_t, uint32_t> ResourceManager::process_mesh_queue()
 		if(entry.skinned)
 		{
 			SkinnedMesh& m = data.sk_meshes[entry.handle];
-		/*	uint32_t skv_offset = static_cast<uint32_t>(m.ssbo_vertex_offset) * sizeof(SkinnedMesh::Vertex);
-			idx_offset = static_cast<uint32_t>(m.ib_index_offset) * sizeof(uint32_t);
+			idx_offset = m.clusters[0].index_offset * sizeof(uint8_t);
+			
+			uint32_t skv_offset = static_cast<uint32_t>(m.clusters[0].vertex_offset) * sizeof(SkinnedMesh::Vertex);
 
 			data.transfer_cmd_skv.push_back
 			({
@@ -875,7 +902,7 @@ std::pair<uint32_t, uint32_t> ResourceManager::process_mesh_queue()
 				.dstOffset = skv_offset,
 				.size = vpos_size
 			});
-			stream_buffer_head += vpos_size;*/
+			stream_buffer_head += vpos_size;
 		}
 		else
 		{
@@ -946,21 +973,30 @@ std::pair<uint32_t, uint32_t> ResourceManager::process_mesh_queue()
 		processed_assets++;	
 	}
 
-	for(auto& entry : data.sk_instance_queue)
+	for(const auto& entry : data.sk_instance_queue)
 	{
-		auto& mesh = data.meshes[entry.instance];
-		if(stream_buffer_head + sizeof(Mesh::LODLevel) >= stream_buffer_size)
+		const auto& mesh = data.meshes[entry.instance];
+		if(stream_buffer_head + (mesh.lod_count * sizeof(Mesh::LODLevel)) + (mesh.clusters.size() * sizeof(Mesh::Cluster)) >= stream_buffer_size)
 			break;
 
-		std::memcpy(streambuf + stream_buffer_head, &mesh.lods[0], sizeof(Mesh::LODLevel));
+		std::memcpy(streambuf + stream_buffer_head, &mesh.lods[0], sizeof(Mesh::LODLevel) * mesh.lod_count);
 
 		data.transfer_cmd_lod.push_back
 		({
 			.srcOffset = stream_buffer_head,
-			.dstOffset = entry.offset * sizeof(Mesh::LODLevel),
-			.size = sizeof(Mesh::LODLevel)
+			.dstOffset = entry.lod_offset * sizeof(Mesh::LODLevel),
+			.size = sizeof(Mesh::LODLevel) * mesh.lod_count
 		});
-		stream_buffer_head += sizeof(Mesh::LODLevel);
+		stream_buffer_head += sizeof(Mesh::LODLevel) * mesh.lod_count;
+
+		std::memcpy(streambuf + stream_buffer_head, &mesh.clusters[0], sizeof(Mesh::Cluster) * mesh.clusters.size());
+		data.transfer_cmd_cluster.push_back
+		({
+			.srcOffset = stream_buffer_head,
+			.dstOffset = entry.cluster_offset * sizeof(Mesh::Cluster),
+			.size = sizeof(Mesh::Cluster) * mesh.clusters.size()
+		});
+		stream_buffer_head += sizeof(Mesh::Cluster) * mesh.clusters.size();
 		processed_instances++;
 	}
 
@@ -1491,8 +1527,7 @@ void ResourceManager::copy_material_data()
 			region.size = data.stride * data.size;
 			cmd.vk_object().copyBuffer(data.cpu_material_data->handle, data.gpu_material_data->handle, 1, &region);
 
-			for(auto& dpage : data.dirty)
-				dpage = 0;
+			std::fill(data.dirty.begin(), data.dirty.end(), 0);
 		}
 		else
 		{
