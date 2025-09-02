@@ -447,9 +447,10 @@ void CommandBuffer::bind_vertex_buffers(array_proxy<Buffer*> buffers) const noex
 {
 	assert(!is_compute_pso);
 	assert(bound_pipe);
-	
-	std::array<vk::Buffer, 2> handles;
-	std::array<vk::DeviceSize, 2> offsets{0ull, 0ull};
+	assert(buffers.size() <= 3);
+
+	std::array<vk::Buffer, 3> handles;
+	std::array<vk::DeviceSize, 3> offsets{0ull, 0ull, 0ull};
 	uint32_t count = 0;
 
 	for(auto* buffer : buffers)
